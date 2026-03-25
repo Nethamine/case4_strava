@@ -1033,16 +1033,26 @@ st.markdown("", unsafe_allow_html=True)  # spacer
 _alle_namen = {rid: res['naam'] for rid, res in act_res.items()}
 _max_weer   = min(len(_alle_namen), 10)
 
-n_weer = st.selectbox(
+# Bouw leesbare labels: "bestandsnaam  ·  SPORT"
+def _activiteit_label(rid):
+    naam  = _alle_namen[rid]
+    sport = sport_per_run.get(rid, '')
+    if sport and sport != 'onbekend':
+        return f"{naam}  ·  {sport.upper()}"
+    return naam
+
+_label_naar_rid = {_activiteit_label(rid): rid for rid in _alle_namen}
+_standaard      = list(_label_naar_rid.keys())[:_max_weer]
+
+gekozen_labels = st.multiselect(
     "Activiteiten weergeven",
-    options=list(range(1, len(_alle_namen) + 1)),
-    index=min(_max_weer, len(_alle_namen)) - 1,
-    format_func=lambda n: f"{n} activiteit{'en' if n != 1 else ''}",
-    help="Kies hoeveel activiteiten je in de grafieken wilt zien. "
+    options=list(_label_naar_rid.keys()),
+    default=_standaard,
+    help="Selecteer welke activiteiten je in de grafieken wilt zien. "
          "Het model is getraind op alle geselecteerde activiteiten.",
 )
-# Beperk act_res tot de eerste n_weer items
-_weer_ids  = list(_alle_namen.keys())[:n_weer]
+
+_weer_ids    = [_label_naar_rid[l] for l in gekozen_labels]
 act_res_weer = {rid: act_res[rid] for rid in _weer_ids}
 
 tab_grafieken, tab_cv, tab_importance = st.tabs([
