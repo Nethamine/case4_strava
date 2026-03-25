@@ -189,8 +189,17 @@ st.markdown("""
 #  HULPFUNCTIES  (low-level, niet gecached)
 # ──────────────────────────────────────────────
 
+def _is_gzip(filepath: str) -> bool:
+    """Check magic bytes – betrouwbaarder dan extensie."""
+    try:
+        with open(filepath, 'rb') as f:
+            return f.read(2) == b'\x1f\x8b'
+    except Exception:
+        return False
+
+
 def _open_fit(filepath: str):
-    if filepath.endswith('.gz'):
+    if _is_gzip(filepath):
         tmp = tempfile.NamedTemporaryFile(suffix='.fit', delete=False)
         with gzip.open(filepath, 'rb') as f_in:
             shutil.copyfileobj(f_in, tmp)
