@@ -719,7 +719,7 @@ with st.sidebar:
     st.markdown('<div class="speed-box-label">Snelheid vs nauwkeurigheid</div>', unsafe_allow_html=True)
 
     max_activiteiten = st.slider(
-        "Max. activiteiten",
+        "Max. activiteiten (model)",
         min_value=2, max_value=50, value=10, step=1,
         help="Minder activiteiten = sneller, maar minder traindata voor het model.",
     )
@@ -957,6 +957,22 @@ for col, (label, val, unit) in zip(kpi_cols, kpi_data):
 st.markdown("", unsafe_allow_html=True)  # spacer
 
 # ── Tabs ──
+# Dropdown: hoeveel activiteiten weergeven
+_alle_namen = {rid: res['naam'] for rid, res in act_res.items()}
+_max_weer   = min(len(_alle_namen), 10)
+
+n_weer = st.selectbox(
+    "Activiteiten weergeven",
+    options=list(range(1, len(_alle_namen) + 1)),
+    index=min(_max_weer, len(_alle_namen)) - 1,
+    format_func=lambda n: f"{n} activiteit{'en' if n != 1 else ''}",
+    help="Kies hoeveel activiteiten je in de grafieken wilt zien. "
+         "Het model is getraind op alle geselecteerde activiteiten.",
+)
+# Beperk act_res tot de eerste n_weer items
+_weer_ids  = list(_alle_namen.keys())[:n_weer]
+act_res_weer = {rid: act_res[rid] for rid in _weer_ids}
+
 tab_grafieken, tab_cv, tab_importance = st.tabs([
     "Pacing grafieken",
     "Cross-validatie scores",
@@ -999,7 +1015,7 @@ _LAYOUT = dict(
 
 with tab_grafieken:
     st.markdown('<div class="section-label">Pacing grafieken per activiteit</div>', unsafe_allow_html=True)
-    for run_id, res in act_res.items():
+    for run_id, res in act_res_weer.items():
         kleur  = KLEUREN[(run_id - 1) % len(KLEUREN)]
         naam   = res['naam']
         df_res = _truncate(res['df_result'])   # truncate staart
