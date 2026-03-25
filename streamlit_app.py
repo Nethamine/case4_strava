@@ -142,6 +142,23 @@ html, body, [class*="css"] {
     color: #2ecc71;
     letter-spacing: 0.06em;
 }
+.speed-box {
+    border: 1px solid #f39c12;
+    border-left: 3px solid #f39c12;
+    border-radius: 4px;
+    padding: 0.6rem 0.75rem 0.75rem;
+    margin: 0.75rem 0 0.5rem;
+    background: #161b10;
+}
+.speed-box-label {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #f39c12;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+}
 section[data-testid="stSidebar"] {
     background-color: #10131c;
     border-right: 1px solid #1e2535;
@@ -704,22 +721,10 @@ with st.sidebar:
         help="Groter venster = soepelere features, iets minder precies.",
     )
 
-    st.markdown("""
-    <div style="
-        border: 1px solid #f39c12;
-        border-radius: 4px;
-        padding: 0.6rem 0.75rem 0.75rem;
-        margin: 0.75rem 0 0.5rem;
-    ">
-        <div style="
-            font-size: 0.68rem;
-            letter-spacing: 0.1em;
-            text-transform: uppercase;
-            color: #f39c12;
-            margin-bottom: 0.5rem;
-            font-weight: 600;
-        ">Snelheid vs nauwkeurigheid</div>
-    """, unsafe_allow_html=True)
+    st.markdown('''
+    <div class="speed-box">
+        <div class="speed-box-label">Snelheid vs nauwkeurigheid</div>
+    ''', unsafe_allow_html=True)
 
     max_activiteiten = st.slider(
         "Max. activiteiten",
