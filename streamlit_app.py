@@ -1192,11 +1192,24 @@ with tab_grafieken:
                     fillcolor='rgba(136,153,170,0.08)',
                     showlegend=False,
                 ))
+                afw_max = float(afw.max())
+                afw_min = float(afw.min())
+
                 fig2.add_hline(y=0, line_color='#4a5568', line_width=1)
                 fig2.add_hline(
-                    y=drempel_pct, line_dash='dot', line_color='#e74c3c', line_width=1.5,
-                    annotation_text=f'Drempel {drempel_pct}%',
+                    y=afw_max, line_dash='dash', line_color='#2ecc71', line_width=1.5,
+                    annotation_text=f'Max +{afw_max:.1f}%',
+                    annotation_font_color='#2ecc71', annotation_position='top right',
+                )
+                fig2.add_hline(
+                    y=afw_min, line_dash='dash', line_color='#e74c3c', line_width=1.5,
+                    annotation_text=f'Min {afw_min:.1f}%',
                     annotation_font_color='#e74c3c', annotation_position='bottom right',
+                )
+                fig2.add_hline(
+                    y=drempel_pct, line_dash='dot', line_color='#e74c3c', line_width=1,
+                    annotation_text=f'Drempel {drempel_pct}%',
+                    annotation_font_color='#e74c3c', annotation_position='bottom left',
                 )
                 fig2.update_layout(
                     **_LAYOUT,
