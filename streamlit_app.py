@@ -618,18 +618,29 @@ def scan_repo_files() -> list[dict]:
     return found
 
 
+# Sporten die niet zinvol zijn om te tonen
+_SPORT_BLACKLIST = {'generic', 'all', 'e_sports'}
+
 @st.cache_data(show_spinner=False)
 def scan_sporten(file_paths: tuple[str, ...]) -> list[str]:
     """
     Detecteer alle unieke sporten in de repo-bestanden.
+    Filtert numerieke codes en generieke waarden eruit.
     Gecached op de bestandspaden zodat dit maar één keer draait.
     """
     sporten = set()
     for path in file_paths:
         try:
             sport = _detect_sport_from_path(path)
-            if sport:
-                sporten.add(sport)
+            if not sport:
+                continue
+            # Sla numerieke codes over (bijv. "62", "64")
+            if sport.strip().lstrip('-').isdigit():
+                continue
+            # Sla blacklist-waarden over
+            if sport.lower() in _SPORT_BLACKLIST:
+                continue
+            sporten.add(sport)
         except Exception:
             continue
     return sorted(sporten)
