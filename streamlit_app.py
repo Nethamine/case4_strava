@@ -692,6 +692,7 @@ with st.sidebar:
         )
 
     st.markdown('<div class="section-label">Model-instellingen</div>', unsafe_allow_html=True)
+
     drempel_pct = st.slider(
         "Muur-drempel (%)",
         min_value=-30, max_value=-1, value=-10, step=1,
@@ -700,22 +701,43 @@ with st.sidebar:
     rolling_window = st.slider(
         "Rolling window (sec)",
         min_value=10, max_value=300, value=60, step=10,
+        help="Groter venster = soepelere features, iets minder precies.",
     )
+
+    st.markdown("""
+    <div style="
+        border: 1px solid #f39c12;
+        border-radius: 4px;
+        padding: 0.6rem 0.75rem 0.75rem;
+        margin: 0.75rem 0 0.5rem;
+    ">
+        <div style="
+            font-size: 0.68rem;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: #f39c12;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+        ">Snelheid vs nauwkeurigheid</div>
+    """, unsafe_allow_html=True)
+
     max_activiteiten = st.slider(
         "Max. activiteiten",
         min_value=2, max_value=50, value=10, step=1,
-        help="Beperk het aantal activiteiten voor snellere analyse. Bestanden worden willekeurig geselecteerd.",
+        help="Minder activiteiten = sneller, maar minder traindata voor het model.",
     )
     max_rijen = st.slider(
         "Max. rijen per activiteit",
         min_value=100, max_value=3000, value=500, step=100,
-        help="Downsample elke activiteit voor snellere berekening. 500 rijen is doorgaans voldoende.",
+        help="Lagere waarde = sneller, maar fijnere pacing-patronen gaan verloren.",
     )
     snelle_modus = st.checkbox(
-        "Snelle modus (alleen Random Forest)",
+        "Alleen Random Forest",
         value=True,
-        help="Traint alleen Random Forest. Schakel uit voor vergelijking van alle drie modellen.",
+        help="Traint alleen Random Forest (snelst). Uitvinken vergelijkt alle drie modellen.",
     )
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("---")
     run_btn = st.button("▶  Analyse uitvoeren")
@@ -759,10 +781,14 @@ for uf in uploaded_files:
 # Controleer welke bestanden al in cache zitten
 from streamlit import cache_data as _cd  # nodig voor cache-check via _cd.get_stats()
 
-cols_files = st.columns(min(len(uploaded_files), 4))
-for i, (uf, fhash) in enumerate(zip(uploaded_files, file_hashes)):
+_MAX_TOON = 10
+_zichtbaar = list(zip(uploaded_files, file_hashes, file_bytes_list))[:_MAX_TOON]
+_verborgen  = list(zip(uploaded_files, file_hashes, file_bytes_list))[_MAX_TOON:]
+
+cols_files = st.columns(min(len(_zichtbaar), 4))
+for i, (uf, fhash, fbytes) in enumerate(_zichtbaar):
     with cols_files[i % len(cols_files)]:
-        size_kb = len(file_bytes_list[i]) / 1024
+        size_kb = len(fbytes) / 1024
         st.markdown(f"""
         <div class="metric-card">
             <div class="metric-label">Bestand {i+1}</div>
@@ -773,6 +799,28 @@ for i, (uf, fhash) in enumerate(zip(uploaded_files, file_hashes)):
             </div>
         </div>
         """, unsafe_allow_html=True)
+
+if _verborgen:
+    namen = ", ".join(uf.name for uf, _, _ in _verborgen)
+    totaal_kb = sum(len(fb) for _, _, fb in _verborgen) / 1024
+    st.markdown(f"""
+    <div style="
+        border-left: 3px solid #2a3a52;
+        background: #0f1520;
+        border-radius: 0 4px 4px 0;
+        padding: 0.5rem 0.75rem;
+        margin-top: 0.5rem;
+        font-size: 0.78rem;
+        color: #6b7a99;
+        line-height: 1.6;
+    ">
+        <span style="color:#4a6080;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;font-size:0.68rem;">
+            + {len(_verborgen)} bestand(en) niet weergegeven
+        </span><br>
+        {namen}<br>
+        <span style="color:#3a4a5a;">{totaal_kb:.0f} KB totaal</span>
+    </div>
+    """, unsafe_allow_html=True)
 
 # ──────────────────────────────────────────────
 #  ANALYSE  –  drie gecachede lagen
