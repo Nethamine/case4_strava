@@ -25,7 +25,7 @@ from sklearn.pipeline import Pipeline
 # ──────────────────────────────────────────────
 st.set_page_config(
     page_title="Pacing Model",
-    page_icon="🏃",
+    page_icon=":running:",
     layout="wide",
 )
 
@@ -179,7 +179,7 @@ h1, h2, h3 { font-family: 'Barlow Condensed', sans-serif; }
 # ──────────────────────────────────────────────
 st.markdown("""
 <div class="hero-header">
-    <div class="hero-title">🏃 Pacing Model</div>
+    <div class="hero-title">Pacing Model</div>
     <div class="hero-subtitle">Strava FIT-bestand analyse &nbsp;·&nbsp; Muur-detectie &nbsp;·&nbsp; Leave-one-out CV</div>
 </div>
 """, unsafe_allow_html=True)
@@ -504,7 +504,7 @@ if not uploaded_files:
     st.stop()
 
 if len(uploaded_files) < 2:
-    st.warning("⚠️  Upload minimaal **twee** FIT-bestanden voor leave-one-out validatie.")
+    st.warning("Upload minimaal **twee** FIT-bestanden voor leave-one-out validatie.")
     st.stop()
 
 # ──────────────────────────────────────────────
@@ -584,7 +584,7 @@ if run_btn:
             cached_count += int(was_cached)
 
             label = (f"Bestand {i}/{n_files}: {uf.name}"
-                     + (" ⚡ (cache)" if was_cached else " – parsen…"))
+                     + (" (cache)" if was_cached else " – parsen..."))
             tick(label)
 
         detected_sport = sport_labels[0]
@@ -611,7 +611,7 @@ if run_btn:
         tick("Muur-detectie…")
         act_res = detect_muur(cv_resultaat['fold_resultaten'], drempel_pct)
 
-        pbar.progress(100, text="✅  Analyse klaar!")
+        pbar.progress(100, text="Analyse klaar!")
         plog.empty()
 
         st.session_state['results'] = {
@@ -626,7 +626,7 @@ if run_btn:
     except Exception as e:
         pbar.empty()
         plog.empty()
-        st.error(f"❌ Fout tijdens analyse: {e}")
+        st.error(f"Fout tijdens analyse: {e}")
         st.exception(e)
         st.stop()
 
@@ -644,7 +644,7 @@ elif 'results' in st.session_state:
 #  RESULTATEN WEERGEVEN
 # ──────────────────────────────────────────────
 if 'results' not in st.session_state:
-    st.info("👈  Klik op **Analyse uitvoeren** in de zijbalk om te starten.")
+    st.info("Klik op **Analyse uitvoeren** in de zijbalk om te starten.")
     st.stop()
 
 results    = st.session_state['results']
@@ -658,7 +658,7 @@ n_files    = results.get('n_files', len(act_res))
 # Cache-info banner
 if cached_cnt > 0:
     st.markdown(
-        f'<span class="cache-hit">⚡ {cached_cnt}/{n_files} bestand(en) uit cache geladen – '
+        f'<span class="cache-hit">{cached_cnt}/{n_files} bestand(en) uit cache geladen – '
         f'geen herverwerking nodig</span>',
         unsafe_allow_html=True,
     )
@@ -693,7 +693,7 @@ cv_rows = [{
     'MAE (m/s)':  f"{np.mean(s['MAE']):.4f}",
     'RMSE (m/s)': f"{np.mean(s['RMSE']):.4f}",
     'R²':         f"{np.mean(s['R2']):.4f}",
-    'Beste':      '✅' if mnaam == beste_naam else '',
+    'Beste':      'ja' if mnaam == beste_naam else '',
 } for mnaam, s in cv_scores.items()]
 st.dataframe(pd.DataFrame(cv_rows), use_container_width=True, hide_index=True)
 
@@ -708,16 +708,16 @@ for run_id, res in act_res.items():
     df_res = res['df_result']
     muur   = res['muur_tijdstap']
 
-    with st.expander(f"📊  {naam}", expanded=True):
+    with st.expander(f"{naam}", expanded=True):
         if muur:
             muur_min = int(muur // 60)
             st.markdown(
-                f'<span class="muur-badge">🧱 Muur gedetecteerd – minuut {muur_min} ({int(muur)}s)</span>',
+                f'<span class="muur-badge">Muur gedetecteerd – minuut {muur_min} ({int(muur)}s)</span>',
                 unsafe_allow_html=True,
             )
         else:
             st.markdown(
-                '<span class="geen-muur-badge">✅ Geen muur – consistent pacing!</span>',
+                '<span class="geen-muur-badge">Geen muur – consistent pacing</span>',
                 unsafe_allow_html=True,
             )
 
