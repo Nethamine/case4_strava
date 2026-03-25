@@ -251,29 +251,53 @@ def parse_uploaded_file(filename: str, file_hash: str, file_bytes: bytes) -> tup
 
     shutil.rmtree(tmp_dir, ignore_errors=True)
 
+    if df.empty:
+        return df, (sport or 'onbekend')
+
     # Opschonen
     df = _clean_fit_data(df)
+
+    # Gooi lege of te kleine activiteiten weg (minder dan 30 rijen = onbruikbaar)
+    if len(df) < 30:
+        return pd.DataFrame(), (sport or 'onbekend')
+
     return df, (sport or 'onbekend')
 
 
 def _clean_fit_data(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
+
+    # Timestamp als index — alleen als de kolom aanwezig en parseerbaar is
     if 'timestamp' in df.columns:
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
+        df = df.dropna(subset=['timestamp'])
         df = df.set_index('timestamp').sort_index()
 
+    # Verwijder rijen zonder kernvariabelen
     kernvars = [c for c in ['enhanced_speed', 'heart_rate', 'cadence'] if c in df.columns]
-    df = df.dropna(subset=kernvars)
+    if kernvars:
+        df = df.dropna(subset=kernvars)
+
+    if df.empty:
+        return df  # lege activiteit — wordt verderop overgeslagen
 
     if 'enhanced_speed' in df.columns:
         df = df[df['enhanced_speed'] > 0.5]
     if 'heart_rate' in df.columns:
         df = df[(df['heart_rate'] > 40) & (df['heart_rate'] < 220)]
 
-    num_cols = df.select_dtypes(include=['number']).columns
-    df[num_cols] = df[num_cols].interpolate(method='time', limit=5)
+    if df.empty:
+        return df
 
-    df['elapsed_seconds'] = (df.index - df.index[0]).total_seconds().astype(int)
+    # Interpoleer alleen als index een DatetimeIndex is
+    num_cols = df.select_dtypes(include=['number']).columns
+    if isinstance(df.index, pd.DatetimeIndex):
+        df[num_cols] = df[num_cols].interpolate(method='time', limit=5)
+        df['elapsed_seconds'] = (df.index - df.index[0]).total_seconds().astype(int)
+    else:
+        df[num_cols] = df[num_cols].interpolate(limit=5)
+        df['elapsed_seconds'] = range(len(df))
+
     df = df.reset_index()
     return df
 
@@ -338,19 +362,37 @@ def _engineer_features(df: pd.DataFrame, window: int = 60) -> pd.DataFrame:
 def run_cv(
     file_hashes: tuple[str, ...],
     rolling_window: int,
+    max_rijen: int,
+    snelle_modus: bool,
     _df_features: pd.DataFrame,              # underscore = niet gehasht
 ) -> dict:
     """
     Leave-one-out CV + feature importance.
-    Gecached op (file_hashes, rolling_window).
+    Gecached op (file_hashes, rolling_window, max_rijen, snelle_modus).
     Drempel aanpassen hertraint het model NIET.
     """
-    modellen_def = {
-        'Lineaire Regressie': lambda: Pipeline([
-            ('scaler', StandardScaler()), ('model', LinearRegression())]),
-        'Random Forest':      lambda: RandomForestRegressor(n_estimators=100, random_state=42),
-        'Gradient Boosting':  lambda: GradientBoostingRegressor(n_estimators=100, random_state=42),
-    }
+    # Downsample per activiteit voor snelheid
+    parts = []
+    for rid, grp in _df_features.groupby('run_id'):
+        if len(grp) > max_rijen:
+            grp = grp.iloc[::len(grp)//max_rijen].head(max_rijen)
+        parts.append(grp)
+    _df_features = pd.concat(parts, ignore_index=True)
+
+    if snelle_modus:
+        modellen_def = {
+            'Random Forest': lambda: RandomForestRegressor(
+                n_estimators=50, random_state=42, n_jobs=-1),
+        }
+    else:
+        modellen_def = {
+            'Lineaire Regressie': lambda: Pipeline([
+                ('scaler', StandardScaler()), ('model', LinearRegression())]),
+            'Random Forest':      lambda: RandomForestRegressor(
+                n_estimators=50, random_state=42, n_jobs=-1),
+            'Gradient Boosting':  lambda: GradientBoostingRegressor(
+                n_estimators=50, random_state=42),
+        }
 
     feature_cols = [c for c in [
         'heart_rate', 'cadence', 'heart_rate_rolling', 'cadence_rolling',
@@ -596,6 +638,21 @@ with st.sidebar:
         "Rolling window (sec)",
         min_value=10, max_value=300, value=60, step=10,
     )
+    max_activiteiten = st.slider(
+        "Max. activiteiten",
+        min_value=2, max_value=50, value=10, step=1,
+        help="Beperk het aantal activiteiten voor snellere analyse. Bestanden worden willekeurig geselecteerd.",
+    )
+    max_rijen = st.slider(
+        "Max. rijen per activiteit",
+        min_value=100, max_value=3000, value=500, step=100,
+        help="Downsample elke activiteit voor snellere berekening. 500 rijen is doorgaans voldoende.",
+    )
+    snelle_modus = st.checkbox(
+        "Snelle modus (alleen Random Forest)",
+        value=True,
+        help="Traint alleen Random Forest. Schakel uit voor vergelijking van alle drie modellen.",
+    )
 
     st.markdown("---")
     run_btn = st.button("▶  Analyse uitvoeren")
@@ -654,8 +711,12 @@ for i, (uf, fhash) in enumerate(zip(uploaded_files, file_hashes)):
 #  ANALYSE  –  drie gecachede lagen
 # ──────────────────────────────────────────────
 if run_btn:
+    import random as _random
+    # Steekproef als er meer bestanden zijn dan het maximum
+    if len(uploaded_files) > max_activiteiten:
+        uploaded_files = _random.sample(uploaded_files, max_activiteiten)
     n_files  = len(uploaded_files)
-    n_models = 3
+    n_models = 1 if snelle_modus else 3
     # Stap-gewichten:  parse(n) + features(1) + cv_folds(n * n_models) + muur(1)
     total_stappen = n_files + 1 + (n_files * n_models) + 1
     stap_nu = [0]  # list zodat inner functie kan muteren zonder nonlocal
@@ -689,6 +750,9 @@ if run_btn:
             dt = _time.perf_counter() - t0
             was_cached = dt < 0.15   # <150 ms → cache-hit
 
+            if df_clean.empty:
+                tick(f"Bestand {i}/{n_files}: {uf.name} – overgeslagen (geen bruikbare data)")
+                continue
             df_clean['source_file'] = uf.name
             clean_dfs.append(df_clean)
             sport_labels.append(sport)
@@ -716,7 +780,7 @@ if run_btn:
             for _ in range(n_models):
                 tick(f"CV fold {fold_i+1}/{n_files} – modellen trainen…")
 
-        cv_resultaat = run_cv(file_hashes, rolling_window, df_features)
+        cv_resultaat = run_cv(file_hashes, rolling_window, max_rijen, snelle_modus, df_features)
 
         # ── Muur-detectie (altijd vers, razendsnel) ───
         tick("Muur-detectie…")
