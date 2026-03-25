@@ -463,8 +463,12 @@ def detect_muur(fold_resultaten: dict, drempel_pct: int) -> dict:
 #  Streamlit Cloud en Codespaces)
 # ──────────────────────────────────────────────
 
-# Mappen relatief aan de locatie van dit script
+# Mappen relatief aan de locatie van dit script.
+# Streamlit Cloud: /mount/src/<repo>/  –  os.getcwd() geeft de repo-root.
 _BASE = os.path.dirname(os.path.abspath(__file__))
+# Fallback: als __file__ geen bruikbaar pad geeft, gebruik cwd
+if not os.path.isdir(os.path.join(_BASE, "data")):
+    _BASE = os.getcwd()
 
 REPO_DIRS = [
     os.path.join(_BASE, "data", "StravaJan"),
@@ -507,20 +511,27 @@ def scan_repo_files() -> list[dict]:
 # ──────────────────────────────────────────────
 
 class RepoFile:
-    """Lichtgewicht wrapper om een pad op disk als 'uploaded file' aan te bieden."""
+    """Lichtgewicht wrapper om een pad op disk als 'uploaded file' aan te bieden.
+    Lazy: bytes worden pas ingelezen bij eerste aanroep van read() of getvalue()."""
     def __init__(self, path: str):
         self._path = path
         self.name  = os.path.basename(path)
-        with open(path, 'rb') as f:
-            self._bytes = f.read()
+        self._bytes: bytes | None = None
+
+    def _load(self):
+        if self._bytes is None:
+            with open(self._path, 'rb') as f:
+                self._bytes = f.read()
 
     def read(self) -> bytes:
+        self._load()
         return self._bytes
 
     def seek(self, _):
-        pass  # geen echte file pointer nodig
+        pass
 
     def getvalue(self) -> bytes:
+        self._load()
         return self._bytes
 
 
