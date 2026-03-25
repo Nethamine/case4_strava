@@ -488,14 +488,14 @@ def scan_repo_files() -> list[dict]:
     for d in REPO_DIRS:
         if not os.path.isdir(d):
             continue
-        # Bepaal atleet-naam uit map-structuur (bijv. StravaJan -> Jan)
         parts = d.replace("\\", "/").split("/")
         strava_part = next((p for p in parts if p.startswith("Strava")), "Onbekend")
         athlete = strava_part.replace("Strava", "")
         for fname in sorted(os.listdir(d)):
-            if any(fname.endswith(ext) for ext in FIT_EXTENSIONS):
-                full = os.path.abspath(os.path.join(d, fname))
-                if full not in seen:
+            fname_lower = fname.lower()
+            if fname_lower.endswith('.fit') or fname_lower.endswith('.fit.gz'):
+                full = os.path.join(d, fname)   # geen abspath, gewoon join
+                if full not in seen and os.path.isfile(full):
                     seen.add(full)
                     found.append({'path': full, 'name': fname, 'athlete': athlete})
     return found
@@ -517,6 +517,11 @@ class RepoFile:
 
     def _load(self):
         if self._bytes is None:
+            if not os.path.isfile(self._path):
+                raise FileNotFoundError(
+                    f"FIT-bestand niet gevonden: {self._path!r}\n"
+                    f"_BASE={_BASE!r}"
+                )
             with open(self._path, 'rb') as f:
                 self._bytes = f.read()
 
