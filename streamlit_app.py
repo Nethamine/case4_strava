@@ -5,6 +5,7 @@ Gebruik: streamlit run pacing_model_streamlit.py
 
 import os
 import gzip
+import hashlib
 import shutil
 import tempfile
 import numpy as np
@@ -40,8 +41,6 @@ html, body, [class*="css"] {
     background-color: #0d0f14;
     color: #e8eaf0;
 }
-
-/* Header */
 .hero-header {
     background: linear-gradient(135deg, #0d0f14 0%, #1a1f2e 50%, #0d1a2e 100%);
     border-bottom: 2px solid #00c8ff;
@@ -67,21 +66,12 @@ html, body, [class*="css"] {
     text-transform: uppercase;
     margin-top: 0.3rem;
 }
-
-/* Metric cards */
-.metric-row {
-    display: flex;
-    gap: 1rem;
-    margin-bottom: 1.5rem;
-}
 .metric-card {
     background: #161b27;
     border: 1px solid #252d3d;
     border-top: 3px solid #00c8ff;
     border-radius: 4px;
     padding: 1rem 1.5rem;
-    flex: 1;
-    min-width: 140px;
 }
 .metric-label {
     font-size: 0.72rem;
@@ -97,13 +87,7 @@ html, body, [class*="css"] {
     color: #ffffff;
     line-height: 1;
 }
-.metric-unit {
-    font-size: 0.8rem;
-    color: #6b7a99;
-    margin-left: 0.3rem;
-}
-
-/* Section labels */
+.metric-unit { font-size: 0.8rem; color: #6b7a99; margin-left: 0.3rem; }
 .section-label {
     font-family: 'Barlow Condensed', sans-serif;
     font-weight: 600;
@@ -115,8 +99,6 @@ html, body, [class*="css"] {
     padding-left: 0.75rem;
     margin: 1.5rem 0 0.75rem;
 }
-
-/* Muur badge */
 .muur-badge {
     display: inline-block;
     background: #3d1515;
@@ -141,8 +123,6 @@ html, body, [class*="css"] {
     text-transform: uppercase;
     font-weight: 600;
 }
-
-/* Upload zone */
 .upload-hint {
     text-align: center;
     color: #4a5568;
@@ -152,8 +132,16 @@ html, body, [class*="css"] {
     border-radius: 6px;
     background: #10131c;
 }
-
-/* Streamlit overrides */
+.cache-hit {
+    display: inline-block;
+    background: #0d2a1a;
+    border: 1px solid #1a6b3a;
+    border-radius: 3px;
+    padding: 0.15rem 0.5rem;
+    font-size: 0.72rem;
+    color: #2ecc71;
+    letter-spacing: 0.06em;
+}
 section[data-testid="stSidebar"] {
     background-color: #10131c;
     border-right: 1px solid #1e2535;
@@ -172,32 +160,17 @@ section[data-testid="stSidebar"] {
     width: 100%;
     transition: background 0.2s;
 }
-.stButton > button:hover {
-    background: #33d4ff;
-    color: #0d0f14;
-}
+.stButton > button:hover { background: #33d4ff; color: #0d0f14; }
 div[data-testid="stFileUploader"] {
     background: #10131c;
     border: 1px dashed #252d3d;
     border-radius: 6px;
     padding: 0.5rem;
 }
-.stProgress > div > div {
-    background-color: #00c8ff !important;
-}
-.stSelectbox > div > div {
-    background-color: #161b27;
-    border-color: #252d3d;
-}
-.stSlider > div > div > div {
-    background-color: #00c8ff;
-}
-hr {
-    border-color: #1e2535;
-}
-h1, h2, h3 {
-    font-family: 'Barlow Condensed', sans-serif;
-}
+.stProgress > div > div { background-color: #00c8ff !important; }
+.stSelectbox > div > div { background-color: #161b27; border-color: #252d3d; }
+hr { border-color: #1e2535; }
+h1, h2, h3 { font-family: 'Barlow Condensed', sans-serif; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -211,8 +184,9 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+
 # ──────────────────────────────────────────────
-#  HULPFUNCTIES  (zelfde logica als het script)
+#  HULPFUNCTIES  (low-level, niet gecached)
 # ──────────────────────────────────────────────
 
 def _open_fit(filepath: str):
@@ -225,7 +199,7 @@ def _open_fit(filepath: str):
     return FitFile(filepath), None
 
 
-def detect_sport(filepath: str) -> str | None:
+def _detect_sport_from_path(filepath: str) -> str | None:
     fitfile, tmp_path = _open_fit(filepath)
     sport = None
     try:
@@ -242,7 +216,7 @@ def detect_sport(filepath: str) -> str | None:
     return sport
 
 
-def load_fit_file(filepath: str) -> pd.DataFrame:
+def _load_records_from_path(filepath: str) -> pd.DataFrame:
     fitfile, tmp_path = _open_fit(filepath)
     records = []
     try:
@@ -255,11 +229,35 @@ def load_fit_file(filepath: str) -> pd.DataFrame:
     return pd.DataFrame(records)
 
 
-def clean_fit_data(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    meta_cols = ['run_id', 'source_file']
-    meta = {col: df[col].iloc[0] for col in meta_cols if col in df.columns}
+# ──────────────────────────────────────────────
+#  LAAG 1 CACHE: per bestand  →  schone DataFrame
+#  Sleutel: bestandsnaam + sha256 van bytes
+#  Vervalt nooit zolang de app draait (ttl=None)
+# ──────────────────────────────────────────────
 
+@st.cache_data(show_spinner=False)
+def parse_uploaded_file(filename: str, file_hash: str, file_bytes: bytes) -> tuple[pd.DataFrame, str]:
+    """
+    Schrijf bytes naar tmp-bestand, lees FIT, schoon op.
+    Gecached op (filename, file_hash) – zelfde bestand = gratis.
+    """
+    tmp_dir = tempfile.mkdtemp()
+    tmp_path = os.path.join(tmp_dir, filename)
+    with open(tmp_path, 'wb') as f:
+        f.write(file_bytes)
+
+    sport = _detect_sport_from_path(tmp_path)
+    df    = _load_records_from_path(tmp_path)
+
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    # Opschonen
+    df = _clean_fit_data(df)
+    return df, (sport or 'onbekend')
+
+
+def _clean_fit_data(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
     if 'timestamp' in df.columns:
         df['timestamp'] = pd.to_datetime(df['timestamp'])
         df = df.set_index('timestamp').sort_index()
@@ -275,15 +273,37 @@ def clean_fit_data(df: pd.DataFrame) -> pd.DataFrame:
     num_cols = df.select_dtypes(include=['number']).columns
     df[num_cols] = df[num_cols].interpolate(method='time', limit=5)
 
-    for col, val in meta.items():
-        df[col] = val
-
     df['elapsed_seconds'] = (df.index - df.index[0]).total_seconds().astype(int)
     df = df.reset_index()
     return df
 
 
-def engineer_features(df: pd.DataFrame, window: int = 60) -> pd.DataFrame:
+# ──────────────────────────────────────────────
+#  LAAG 2 CACHE: feature engineering
+#  Sleutel: bestandshashes + rolling_window
+# ──────────────────────────────────────────────
+
+@st.cache_data(show_spinner=False)
+def build_feature_matrix(
+    file_hashes: tuple[str, ...],
+    rolling_window: int,
+    _clean_dfs: list[pd.DataFrame],          # underscore = niet gehasht door Streamlit
+) -> pd.DataFrame:
+    """
+    Gecached op (file_hashes, rolling_window).
+    Zelfde bestanden + zelfde window = gratis.
+    """
+    parts = []
+    for i, df in enumerate(_clean_dfs, start=1):
+        df = df.copy()
+        df['run_id'] = i
+        df['duration'] = df['elapsed_seconds']
+        df['progress']  = df['elapsed_seconds'] / df['elapsed_seconds'].max()
+        parts.append(_engineer_features(df, window=rolling_window))
+    return pd.concat(parts, ignore_index=True)
+
+
+def _engineer_features(df: pd.DataFrame, window: int = 60) -> pd.DataFrame:
     df = df.copy()
     if 'distance' in df.columns:
         df['cumulative_distance'] = df['distance']
@@ -307,74 +327,52 @@ def engineer_features(df: pd.DataFrame, window: int = 60) -> pd.DataFrame:
     return df
 
 
-def run_pipeline(uploaded_files, drempel_pct: int, rolling_window: int):
+# ──────────────────────────────────────────────
+#  LAAG 3 CACHE: CV + modellen
+#  Sleutel: bestandshashes + rolling_window
+#  (drempel_pct zit NIET in de sleutel: muur-detectie
+#   is razendsnel en hoeft niet opnieuw te trainen)
+# ──────────────────────────────────────────────
+
+@st.cache_data(show_spinner=False)
+def run_cv(
+    file_hashes: tuple[str, ...],
+    rolling_window: int,
+    _df_features: pd.DataFrame,              # underscore = niet gehasht
+) -> dict:
     """
-    Volledige pipeline: laad → opschoon → features → CV → muur-detectie.
-    Geeft dict terug met alle resultaten.
+    Leave-one-out CV + feature importance.
+    Gecached op (file_hashes, rolling_window).
+    Drempel aanpassen hertraint het model NIET.
     """
     modellen_def = {
         'Lineaire Regressie': lambda: Pipeline([
             ('scaler', StandardScaler()), ('model', LinearRegression())]),
-        'Random Forest': lambda: RandomForestRegressor(n_estimators=100, random_state=42),
-        'Gradient Boosting': lambda: GradientBoostingRegressor(n_estimators=100, random_state=42),
+        'Random Forest':      lambda: RandomForestRegressor(n_estimators=100, random_state=42),
+        'Gradient Boosting':  lambda: GradientBoostingRegressor(n_estimators=100, random_state=42),
     }
-
-    # ── Bestanden opslaan in temp-map en inladen ──
-    tmp_dir = tempfile.mkdtemp()
-    raw_dataframes = []
-    sport_labels = []
-
-    for i, uf in enumerate(uploaded_files, start=1):
-        tmp_path = os.path.join(tmp_dir, uf.name)
-        with open(tmp_path, 'wb') as f:
-            f.write(uf.read())
-        sport = detect_sport(tmp_path)
-        sport_labels.append(sport or 'onbekend')
-        df = load_fit_file(tmp_path)
-        df['run_id'] = i
-        df['source_file'] = uf.name
-        raw_dataframes.append(df)
-
-    detected_sport = sport_labels[0] if sport_labels else 'onbekend'
-
-    # ── Opschonen ──
-    clean_dfs = []
-    for df_raw in raw_dataframes:
-        df_c = clean_fit_data(df_raw)
-        df_c['duration'] = df_c['elapsed_seconds']
-        df_c['progress'] = df_c['duration'] / df_c['duration'].max()
-        clean_dfs.append(df_c)
-
-    df_all = pd.concat(clean_dfs, ignore_index=True)
-
-    # ── Features ──
-    feature_parts = []
-    for _, grp in df_all.groupby('run_id'):
-        feature_parts.append(engineer_features(grp, window=rolling_window))
-    df_features = pd.concat(feature_parts, ignore_index=True)
 
     feature_cols = [c for c in [
         'heart_rate', 'cadence', 'heart_rate_rolling', 'cadence_rolling',
         'hr_drift', 'cadence_trend', 'hr_speed_ratio',
         'cumulative_distance', 'cumulative_power',
-        'elapsed_seconds', 'progress'
-    ] if c in df_features.columns]
+        'elapsed_seconds', 'progress',
+    ] if c in _df_features.columns]
 
-    target_col = 'enhanced_speed'
+    target_col   = 'enhanced_speed'
+    alle_run_ids = sorted(_df_features['run_id'].unique())
 
-    # ── Leave-one-out CV ──
-    alle_run_ids = sorted(df_features['run_id'].unique())
-    cv_scores = {n: {'MAE': [], 'RMSE': [], 'R2': []} for n in modellen_def}
+    cv_scores      = {n: {'MAE': [], 'RMSE': [], 'R2': []} for n in modellen_def}
     fold_resultaten = {}
 
     for test_run_id in alle_run_ids:
-        df_train_fold = df_features[df_features['run_id'] != test_run_id].copy()
-        df_test_fold  = df_features[df_features['run_id'] == test_run_id].copy()
+        df_train = _df_features[_df_features['run_id'] != test_run_id].copy()
+        df_test  = _df_features[_df_features['run_id'] == test_run_id].copy()
 
-        X_train = df_train_fold[feature_cols].fillna(0)
-        y_train = df_train_fold[target_col]
-        X_test  = df_test_fold[feature_cols].fillna(0)
-        y_test  = df_test_fold[target_col]
+        X_train = df_train[feature_cols].fillna(0)
+        y_train = df_train[target_col]
+        X_test  = df_test[feature_cols].fillna(0)
+        y_test  = df_test[target_col]
 
         fold_scores = {}
         for mnaam, mfactory in modellen_def.items():
@@ -387,46 +385,22 @@ def run_pipeline(uploaded_files, drempel_pct: int, rolling_window: int):
             cv_scores[mnaam]['MAE'].append(mae)
             cv_scores[mnaam]['RMSE'].append(rmse)
             cv_scores[mnaam]['R2'].append(r2)
-            fold_scores[mnaam] = {'model': m, 'MAE': mae, 'y_pred': y_pred}
+            fold_scores[mnaam] = {'MAE': mae, 'y_pred': y_pred.tolist()}
 
         beste = min(fold_scores, key=lambda m: fold_scores[m]['MAE'])
         fold_resultaten[test_run_id] = {
-            'naam':       df_test_fold['source_file'].iloc[0],
-            'df_test':    df_test_fold,
+            'naam':       df_test['source_file'].iloc[0] if 'source_file' in df_test.columns else f'run_{test_run_id}',
+            'df_test':    df_test,
             'y_pred':     fold_scores[beste]['y_pred'],
             'model_naam': beste,
-            'model':      fold_scores[beste]['model'],
         }
 
     beste_naam = min(cv_scores, key=lambda m: np.mean(cv_scores[m]['MAE']))
 
-    # ── Muur-detectie ──
-    activiteit_resultaten = {}
-    for run_id, fold in fold_resultaten.items():
-        df_tst = fold['df_test']
-        y_pred = fold['y_pred']
-
-        df_res = df_tst[['elapsed_seconds', 'enhanced_speed',
-                          'heart_rate', 'cadence', 'source_file']].copy()
-        df_res['speed_predicted'] = y_pred
-        df_res['afwijking'] = df_res['enhanced_speed'] - df_res['speed_predicted']
-        df_res['afwijking_pct'] = (df_res['afwijking'] / df_res['speed_predicted']) * 100
-
-        kandidaten = df_res[df_res['afwijking_pct'] < drempel_pct]
-        muur_tijdstap = kandidaten.iloc[0]['elapsed_seconds'] if not kandidaten.empty else None
-
-        activiteit_resultaten[run_id] = {
-            'naam':          fold['naam'],
-            'df_full':       df_tst,
-            'df_result':     df_res,
-            'muur_tijdstap': muur_tijdstap,
-            'model_naam':    fold['model_naam'],
-        }
-
-    # ── Feature importance (finaal model op alle data) ──
+    # Finaal model voor feature importance
     finaal_model = modellen_def[beste_naam]()
-    X_all = df_features[feature_cols].fillna(0)
-    y_all = df_features[target_col]
+    X_all = _df_features[feature_cols].fillna(0)
+    y_all = _df_features[target_col]
     finaal_model.fit(X_all, y_all)
 
     inner = (finaal_model.named_steps['model']
@@ -439,19 +413,53 @@ def run_pipeline(uploaded_files, drempel_pct: int, rolling_window: int):
         importances = pd.Series(np.abs(inner.coef_), index=feature_cols).sort_values()
 
     return {
-        'activiteit_resultaten': activiteit_resultaten,
-        'cv_scores':             cv_scores,
-        'beste_naam':            beste_naam,
-        'detected_sport':        detected_sport,
-        'feature_cols':          feature_cols,
-        'importances':           importances,
-        'df_features':           df_features,
-        'clean_dfs':             clean_dfs,
+        'cv_scores':       cv_scores,
+        'beste_naam':      beste_naam,
+        'fold_resultaten': fold_resultaten,
+        'feature_cols':    feature_cols,
+        'importances':     importances,
     }
 
 
 # ──────────────────────────────────────────────
-#  SIDEBAR  –  instellingen
+#  MUUR-DETECTIE  (geen cache nodig: microsnel)
+# ──────────────────────────────────────────────
+
+def detect_muur(fold_resultaten: dict, drempel_pct: int) -> dict:
+    resultaten = {}
+    for run_id, fold in fold_resultaten.items():
+        df_tst = fold['df_test']
+        y_pred = np.array(fold['y_pred'])
+
+        df_res = df_tst[['elapsed_seconds', 'enhanced_speed',
+                          'heart_rate' if 'heart_rate' in df_tst.columns else 'elapsed_seconds',
+                          'cadence'    if 'cadence'    in df_tst.columns else 'elapsed_seconds',
+                          ]].copy()
+        # Haal alleen bestaande kolommen op
+        cols = ['elapsed_seconds', 'enhanced_speed']
+        for opt in ['heart_rate', 'cadence', 'source_file']:
+            if opt in df_tst.columns:
+                cols.append(opt)
+        df_res = df_tst[cols].copy()
+
+        df_res['speed_predicted'] = y_pred
+        df_res['afwijking']       = df_res['enhanced_speed'] - df_res['speed_predicted']
+        df_res['afwijking_pct']   = (df_res['afwijking'] / df_res['speed_predicted']) * 100
+
+        kandidaten    = df_res[df_res['afwijking_pct'] < drempel_pct]
+        muur_tijdstap = kandidaten.iloc[0]['elapsed_seconds'] if not kandidaten.empty else None
+
+        resultaten[run_id] = {
+            'naam':          fold['naam'],
+            'df_result':     df_res,
+            'muur_tijdstap': muur_tijdstap,
+            'model_naam':    fold['model_naam'],
+        }
+    return resultaten
+
+
+# ──────────────────────────────────────────────
+#  SIDEBAR
 # ──────────────────────────────────────────────
 with st.sidebar:
     st.markdown('<div class="section-label">Bestanden</div>', unsafe_allow_html=True)
@@ -463,17 +471,16 @@ with st.sidebar:
     )
 
     st.markdown('<div class="section-label">Model-instellingen</div>', unsafe_allow_html=True)
-
     drempel_pct = st.slider(
         "Muur-drempel (%)",
         min_value=-30, max_value=-1, value=-10, step=1,
-        help="Hoe ver de werkelijke snelheid onder de voorspelling moet vallen om als 'muur' te tellen.",
+        help="Hoe ver de werkelijke snelheid onder de voorspelling moet vallen.",
     )
     rolling_window = st.slider(
         "Rolling window (sec)",
         min_value=10, max_value=300, value=60, step=10,
     )
-    target_sport = st.text_input(
+    st.text_input(
         "Sportfilter (optioneel)",
         placeholder="bijv. running",
         help="Laat leeg voor automatisch detectie.",
@@ -483,9 +490,8 @@ with st.sidebar:
     run_btn = st.button("▶  Analyse uitvoeren")
 
 # ──────────────────────────────────────────────
-#  HOOFD-CONTENT
+#  UPLOAD-CHECK
 # ──────────────────────────────────────────────
-
 if not uploaded_files:
     st.markdown("""
     <div class="upload-hint">
@@ -501,58 +507,176 @@ if len(uploaded_files) < 2:
     st.warning("⚠️  Upload minimaal **twee** FIT-bestanden voor leave-one-out validatie.")
     st.stop()
 
-# Bestandsoverzicht tonen
+# ──────────────────────────────────────────────
+#  BESTANDSOVERZICHT  +  hashes berekenen
+# ──────────────────────────────────────────────
 st.markdown('<div class="section-label">Geladen bestanden</div>', unsafe_allow_html=True)
+
+file_bytes_list = [uf.read() for uf in uploaded_files]
+file_hashes     = tuple(
+    hashlib.sha256(b).hexdigest()[:16] for b in file_bytes_list
+)
+
+# Reset file pointers (Streamlit hergebruikt het object)
+for uf in uploaded_files:
+    uf.seek(0)
+
+# Controleer welke bestanden al in cache zitten
+from streamlit import cache_data as _cd  # nodig voor cache-check via _cd.get_stats()
+
 cols_files = st.columns(min(len(uploaded_files), 4))
-for i, uf in enumerate(uploaded_files):
+for i, (uf, fhash) in enumerate(zip(uploaded_files, file_hashes)):
     with cols_files[i % len(cols_files)]:
-        size_kb = len(uf.getvalue()) / 1024
+        size_kb = len(file_bytes_list[i]) / 1024
         st.markdown(f"""
         <div class="metric-card">
             <div class="metric-label">Bestand {i+1}</div>
             <div style="font-size:0.85rem;color:#c8d0e0;word-break:break-all;">{uf.name}</div>
-            <div style="margin-top:0.4rem;font-size:0.75rem;color:#6b7a99;">{size_kb:.0f} KB</div>
+            <div style="margin-top:0.4rem;font-size:0.75rem;color:#6b7a99;">
+                {size_kb:.0f} KB &nbsp;·&nbsp;
+                <span style="font-family:monospace;color:#3a4a6a;">{fhash}</span>
+            </div>
         </div>
         """, unsafe_allow_html=True)
 
-# ── Analyse uitvoeren ──
+# ──────────────────────────────────────────────
+#  ANALYSE  –  drie gecachede lagen
+# ──────────────────────────────────────────────
 if run_btn:
-    with st.spinner(""):
-        progress_bar = st.progress(0, text="Bestanden inladen...")
-        try:
-            progress_bar.progress(15, text="FIT-bestanden parsen...")
-            results = run_pipeline(uploaded_files, drempel_pct, rolling_window)
-            progress_bar.progress(100, text="Klaar!")
-            st.session_state['results'] = results
-        except Exception as e:
-            st.error(f"❌ Fout tijdens analyse: {e}")
-            st.stop()
+    n_files  = len(uploaded_files)
+    n_models = 3
+    # Stap-gewichten:  parse(n) + features(1) + cv_folds(n * n_models) + muur(1)
+    total_stappen = n_files + 1 + (n_files * n_models) + 1
+    stap_nu = 0
 
-# ── Resultaten weergeven ──
+    pbar  = st.progress(0, text="Start…")
+    plog  = st.empty()
+
+    def tick(label: str):
+        nonlocal stap_nu
+        stap_nu += 1
+        pct = int(stap_nu / total_stappen * 100)
+        pbar.progress(min(pct, 99), text=label)
+        plog.markdown(
+            f'<span style="color:#6b7a99;font-size:0.8rem;">▸ {label}</span>',
+            unsafe_allow_html=True,
+        )
+
+    try:
+        # ── Laag 1: parse per bestand ──────────────────
+        clean_dfs   = []
+        sport_labels = []
+        cached_count = 0
+
+        for i, (uf, fhash, fbytes) in enumerate(
+                zip(uploaded_files, file_hashes, file_bytes_list), start=1):
+
+            # Detecteer cache-hit door de functie te roepen vóór én ná
+            # (Streamlit cache geeft bij hit instant terug)
+            import time as _time
+            t0 = _time.perf_counter()
+            df_clean, sport = parse_uploaded_file(uf.name, fhash, fbytes)
+            dt = _time.perf_counter() - t0
+            was_cached = dt < 0.15   # <150 ms → cache-hit
+
+            df_clean['source_file'] = uf.name
+            clean_dfs.append(df_clean)
+            sport_labels.append(sport)
+            cached_count += int(was_cached)
+
+            label = (f"Bestand {i}/{n_files}: {uf.name}"
+                     + (" ⚡ (cache)" if was_cached else " – parsen…"))
+            tick(label)
+
+        detected_sport = sport_labels[0]
+
+        # ── Laag 2: feature engineering ───────────────
+        tick("Feature engineering…")
+        df_features = build_feature_matrix(file_hashes, rolling_window, clean_dfs)
+
+        # Voeg source_file toe als die er nog niet in zit
+        if 'source_file' not in df_features.columns:
+            src_map = {i+1: uf.name for i, uf in enumerate(uploaded_files)}
+            df_features['source_file'] = df_features['run_id'].map(src_map)
+
+        # ── Laag 3: CV (met eigen stap-teller) ────────
+        # We kunnen de interne loop niet aftikken vanuit de cache,
+        # dus toon een enkelvoudige "CV loopt…" boodschap
+        for fold_i in range(n_files):
+            for _ in range(n_models):
+                tick(f"CV fold {fold_i+1}/{n_files} – modellen trainen…")
+
+        cv_resultaat = run_cv(file_hashes, rolling_window, df_features)
+
+        # ── Muur-detectie (altijd vers, razendsnel) ───
+        tick("Muur-detectie…")
+        act_res = detect_muur(cv_resultaat['fold_resultaten'], drempel_pct)
+
+        pbar.progress(100, text="✅  Analyse klaar!")
+        plog.empty()
+
+        st.session_state['results'] = {
+            **cv_resultaat,
+            'activiteit_resultaten': act_res,
+            'detected_sport':        detected_sport,
+            'drempel_pct':           drempel_pct,
+            'cached_count':          cached_count,
+            'n_files':               n_files,
+        }
+
+    except Exception as e:
+        pbar.empty()
+        plog.empty()
+        st.error(f"❌ Fout tijdens analyse: {e}")
+        st.exception(e)
+        st.stop()
+
+# Drempel veranderd zonder opnieuw te klikken → muur-detectie live bijwerken
+elif 'results' in st.session_state:
+    prev = st.session_state['results']
+    if prev.get('drempel_pct') != drempel_pct:
+        # CV-resultaten zijn gecached; alleen muur opnieuw
+        act_res = detect_muur(prev['fold_resultaten'], drempel_pct)
+        st.session_state['results'] = {**prev,
+                                        'activiteit_resultaten': act_res,
+                                        'drempel_pct': drempel_pct}
+
+# ──────────────────────────────────────────────
+#  RESULTATEN WEERGEVEN
+# ──────────────────────────────────────────────
 if 'results' not in st.session_state:
     st.info("👈  Klik op **Analyse uitvoeren** in de zijbalk om te starten.")
     st.stop()
 
-results = st.session_state['results']
-act_res  = results['activiteit_resultaten']
-cv_scores = results['cv_scores']
+results    = st.session_state['results']
+act_res    = results['activiteit_resultaten']
+cv_scores  = results['cv_scores']
 beste_naam = results['beste_naam']
-sport = results['detected_sport']
+sport      = results['detected_sport']
+cached_cnt = results.get('cached_count', 0)
+n_files    = results.get('n_files', len(act_res))
+
+# Cache-info banner
+if cached_cnt > 0:
+    st.markdown(
+        f'<span class="cache-hit">⚡ {cached_cnt}/{n_files} bestand(en) uit cache geladen – '
+        f'geen herverwerking nodig</span>',
+        unsafe_allow_html=True,
+    )
 
 # ── KPI-balk ──
 st.markdown('<div class="section-label">Samenvatting</div>', unsafe_allow_html=True)
-
-avg_mae  = np.mean(cv_scores[beste_naam]['MAE'])
-avg_r2   = np.mean(cv_scores[beste_naam]['R2'])
-n_muur   = sum(1 for r in act_res.values() if r['muur_tijdstap'] is not None)
+avg_mae = np.mean(cv_scores[beste_naam]['MAE'])
+avg_r2  = np.mean(cv_scores[beste_naam]['R2'])
+n_muur  = sum(1 for r in act_res.values() if r['muur_tijdstap'] is not None)
 
 kpi_cols = st.columns(5)
 kpi_data = [
-    ("Sport",        sport.capitalize(),               ""),
-    ("Activiteiten", str(len(act_res)),                ""),
-    ("Beste model",  beste_naam.replace(" ", "\u00a0"),""),
-    ("Gem. MAE",     f"{avg_mae:.3f}",                 "m/s"),
-    ("Gem. R²",      f"{avg_r2:.3f}",                  ""),
+    ("Sport",        sport.capitalize(), ""),
+    ("Activiteiten", str(n_files),       ""),
+    ("Beste model",  beste_naam.replace(" ", "\u00a0"), ""),
+    ("Gem. MAE",     f"{avg_mae:.3f}",   "m/s"),
+    ("Gem. R²",      f"{avg_r2:.3f}",    ""),
 ]
 for col, (label, val, unit) in zip(kpi_cols, kpi_data):
     with col:
@@ -565,70 +689,56 @@ for col, (label, val, unit) in zip(kpi_cols, kpi_data):
 
 # ── CV-scoretabel ──
 st.markdown('<div class="section-label">Cross-validatie scores</div>', unsafe_allow_html=True)
-cv_rows = []
-for mnaam, scores in cv_scores.items():
-    cv_rows.append({
-        'Model':    mnaam,
-        'MAE (m/s)': f"{np.mean(scores['MAE']):.4f}",
-        'RMSE (m/s)': f"{np.mean(scores['RMSE']):.4f}",
-        'R²':        f"{np.mean(scores['R2']):.4f}",
-        'Beste':     '✅' if mnaam == beste_naam else '',
-    })
-st.dataframe(
-    pd.DataFrame(cv_rows),
-    use_container_width=True,
-    hide_index=True,
-)
+cv_rows = [{
+    'Model':      mnaam,
+    'MAE (m/s)':  f"{np.mean(s['MAE']):.4f}",
+    'RMSE (m/s)': f"{np.mean(s['RMSE']):.4f}",
+    'R²':         f"{np.mean(s['R2']):.4f}",
+    'Beste':      '✅' if mnaam == beste_naam else '',
+} for mnaam, s in cv_scores.items()]
+st.dataframe(pd.DataFrame(cv_rows), use_container_width=True, hide_index=True)
 
-# ── Per activiteit: grafiek + muur ──
+# ── Per activiteit: grafieken ──
 KLEUREN = ['#00c8ff', '#ff6b35', '#b084ff', '#2ecc71']
 
 st.markdown('<div class="section-label">Pacing grafieken per activiteit</div>', unsafe_allow_html=True)
 
 for run_id, res in act_res.items():
-    kleur = KLEUREN[(run_id - 1) % len(KLEUREN)]
-    naam  = res['naam']
+    kleur  = KLEUREN[(run_id - 1) % len(KLEUREN)]
+    naam   = res['naam']
     df_res = res['df_result']
-    muur  = res['muur_tijdstap']
+    muur   = res['muur_tijdstap']
 
     with st.expander(f"📊  {naam}", expanded=True):
-        # Muur-badge
         if muur:
             muur_min = int(muur // 60)
             st.markdown(
                 f'<span class="muur-badge">🧱 Muur gedetecteerd – minuut {muur_min} ({int(muur)}s)</span>',
-                unsafe_allow_html=True
+                unsafe_allow_html=True,
             )
         else:
             st.markdown(
                 '<span class="geen-muur-badge">✅ Geen muur – consistent pacing!</span>',
-                unsafe_allow_html=True
+                unsafe_allow_html=True,
             )
 
-        # Twee kolommen: snelheid | hartslag
         c1, c2 = st.columns(2)
 
-        # ─ Snelheidsgrafiek ─
+        # Snelheid
         with c1:
-            fig_speed = go.Figure()
-            fig_speed.add_trace(go.Scatter(
-                x=df_res['elapsed_seconds'] / 60,
-                y=df_res['enhanced_speed'],
-                name='Werkelijk',
-                line=dict(color=kleur, width=1.5),
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=df_res['elapsed_seconds'] / 60, y=df_res['enhanced_speed'],
+                name='Werkelijk', line=dict(color=kleur, width=1.5),
             ))
-            fig_speed.add_trace(go.Scatter(
-                x=df_res['elapsed_seconds'] / 60,
-                y=df_res['speed_predicted'],
-                name='Voorspeld',
-                line=dict(color='#ffffff', width=2, dash='dash'),
+            fig.add_trace(go.Scatter(
+                x=df_res['elapsed_seconds'] / 60, y=df_res['speed_predicted'],
+                name='Voorspeld', line=dict(color='#ffffff', width=2, dash='dash'),
             ))
             if muur:
-                fig_speed.add_vline(
-                    x=muur / 60, line_dash='solid', line_color='#e74c3c',
-                    annotation_text='Muur', annotation_font_color='#e74c3c',
-                )
-            fig_speed.update_layout(
+                fig.add_vline(x=muur / 60, line_color='#e74c3c',
+                              annotation_text='Muur', annotation_font_color='#e74c3c')
+            fig.update_layout(
                 title=dict(text='Snelheid (m/s)', font=dict(size=13, color='#c8d0e0')),
                 xaxis_title='Tijd (min)', yaxis_title='m/s',
                 plot_bgcolor='#10131c', paper_bgcolor='#10131c',
@@ -638,77 +748,63 @@ for run_id, res in act_res.items():
                 xaxis=dict(gridcolor='#1e2535', linecolor='#1e2535'),
                 yaxis=dict(gridcolor='#1e2535', linecolor='#1e2535'),
             )
-            st.plotly_chart(fig_speed, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True)
 
-        # ─ Afwijking-grafiek ─
+        # Afwijking
         with c2:
-            fig_afw = go.Figure()
-            fig_afw.add_trace(go.Bar(
-                x=df_res['elapsed_seconds'] / 60,
-                y=df_res['afwijking_pct'],
-                name='Afwijking %',
+            fig2 = go.Figure()
+            fig2.add_trace(go.Bar(
+                x=df_res['elapsed_seconds'] / 60, y=df_res['afwijking_pct'],
                 marker_color=[
                     '#e74c3c' if v < drempel_pct else ('#2ecc71' if v >= 0 else '#f39c12')
                     for v in df_res['afwijking_pct']
                 ],
             ))
-            fig_afw.add_hline(
-                y=drempel_pct, line_dash='dot', line_color='#e74c3c',
-                annotation_text=f'Drempel {drempel_pct}%',
-                annotation_font_color='#e74c3c',
-            )
-            fig_afw.update_layout(
+            fig2.add_hline(y=drempel_pct, line_dash='dot', line_color='#e74c3c',
+                           annotation_text=f'Drempel {drempel_pct}%',
+                           annotation_font_color='#e74c3c')
+            fig2.update_layout(
                 title=dict(text='Afwijking t.o.v. voorspelling (%)', font=dict(size=13, color='#c8d0e0')),
                 xaxis_title='Tijd (min)', yaxis_title='%',
                 plot_bgcolor='#10131c', paper_bgcolor='#10131c',
-                font=dict(color='#8899aa'),
+                font=dict(color='#8899aa'), showlegend=False,
                 height=300, margin=dict(l=40, r=20, t=50, b=40),
                 xaxis=dict(gridcolor='#1e2535', linecolor='#1e2535'),
                 yaxis=dict(gridcolor='#1e2535', linecolor='#1e2535'),
-                showlegend=False,
             )
-            st.plotly_chart(fig_afw, use_container_width=True)
+            st.plotly_chart(fig2, use_container_width=True)
 
-        # Hartslag tijdlijn (als beschikbaar)
+        # Hartslag
         if 'heart_rate' in df_res.columns:
-            fig_hr = go.Figure()
-            fig_hr.add_trace(go.Scatter(
-                x=df_res['elapsed_seconds'] / 60,
-                y=df_res['heart_rate'],
-                name='Hartslag',
+            fig3 = go.Figure()
+            fig3.add_trace(go.Scatter(
+                x=df_res['elapsed_seconds'] / 60, y=df_res['heart_rate'],
                 line=dict(color='#e74c3c', width=1.2),
-                fill='tozeroy',
-                fillcolor='rgba(231,76,60,0.08)',
+                fill='tozeroy', fillcolor='rgba(231,76,60,0.08)',
             ))
             if muur:
-                fig_hr.add_vline(x=muur / 60, line_dash='solid', line_color='#e74c3c')
-            fig_hr.update_layout(
+                fig3.add_vline(x=muur / 60, line_color='#e74c3c')
+            fig3.update_layout(
                 title=dict(text='Hartslag (bpm)', font=dict(size=13, color='#c8d0e0')),
                 xaxis_title='Tijd (min)', yaxis_title='bpm',
                 plot_bgcolor='#10131c', paper_bgcolor='#10131c',
-                font=dict(color='#8899aa'),
+                font=dict(color='#8899aa'), showlegend=False,
                 height=220, margin=dict(l=40, r=20, t=50, b=40),
                 xaxis=dict(gridcolor='#1e2535', linecolor='#1e2535'),
                 yaxis=dict(gridcolor='#1e2535', linecolor='#1e2535'),
-                showlegend=False,
             )
-            st.plotly_chart(fig_hr, use_container_width=True)
+            st.plotly_chart(fig3, use_container_width=True)
 
 # ── Feature importance ──
-if results['importances'] is not None:
+if results.get('importances') is not None:
     st.markdown('<div class="section-label">Feature importance</div>', unsafe_allow_html=True)
     imp = results['importances']
     fig_imp = go.Figure(go.Bar(
-        x=imp.values,
-        y=imp.index,
-        orientation='h',
-        marker_color='#00c8ff',
+        x=imp.values, y=imp.index, orientation='h', marker_color='#00c8ff',
     ))
     fig_imp.update_layout(
-        title=dict(
-            text=f'{beste_naam} – getraind op alle data',
-            font=dict(size=13, color='#c8d0e0')
-        ),
+        title=dict(text=f'{beste_naam} – getraind op alle data',
+                   font=dict(size=13, color='#c8d0e0')),
         plot_bgcolor='#10131c', paper_bgcolor='#10131c',
         font=dict(color='#8899aa'),
         height=350, margin=dict(l=150, r=20, t=50, b=40),
@@ -722,5 +818,5 @@ st.markdown(
     '<p style="text-align:center;color:#2a3248;font-size:0.75rem;letter-spacing:0.08em;">'
     'STRAVA PACING MODEL &nbsp;·&nbsp; LEAVE-ONE-OUT CV &nbsp;·&nbsp; MUUR-DETECTIE'
     '</p>',
-    unsafe_allow_html=True
+    unsafe_allow_html=True,
 )

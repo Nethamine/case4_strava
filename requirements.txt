@@ -42,8 +42,8 @@ urllib3==2.6.3
 wcwidth==0.6.0
 widgetsnbextension==4.0.15
 xyzservices==2025.11.0
-fitparse
-plotly
-scikit-learn
-streamlit>=1.35.0
-altair>=5.0.0
+altair==5.5.0
+fitparse==1.0.3
+plotly==6.5.2
+scikit-learn==1.8.0
+streamlit==1.55.0
