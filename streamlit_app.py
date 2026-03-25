@@ -618,6 +618,23 @@ def scan_repo_files() -> list[dict]:
     return found
 
 
+@st.cache_data(show_spinner=False)
+def scan_sporten(file_paths: tuple[str, ...]) -> list[str]:
+    """
+    Detecteer alle unieke sporten in de repo-bestanden.
+    Gecached op de bestandspaden zodat dit maar één keer draait.
+    """
+    sporten = set()
+    for path in file_paths:
+        try:
+            sport = _detect_sport_from_path(path)
+            if sport:
+                sporten.add(sport)
+        except Exception:
+            continue
+    return sorted(sporten)
+
+
 # ──────────────────────────────────────────────
 #  WRAPPER: RepoFile  –  gedraagt zich als
 #  UploadedFile zodat de rest van de code
@@ -681,15 +698,36 @@ with st.sidebar:
             atleten,
             default=atleten,
         )
-        sportfilter = st.text_input(
-            "Sportfilter (optioneel)",
-            placeholder="bijv. running",
-        )
+
+        # Scan sporten (gecached)
+        alle_paden = tuple(f['path'] for f in repo_files)
+        beschikbare_sporten = scan_sporten(alle_paden)
+
+        if beschikbare_sporten:
+            sport_opties = ["Alle sporten"] + beschikbare_sporten
+            gekozen_sport = st.selectbox(
+                "Sport",
+                sport_opties,
+                index=0,
+            )
+            sportfilter = None if gekozen_sport == "Alle sporten" else gekozen_sport
+        else:
+            sportfilter = None
+            st.caption("Sporten worden gedetecteerd bij inladen.")
+
         uploaded_files = [
             RepoFile(f['path'])
             for f in repo_files
             if f['athlete'] in gekozen_atleten
         ]
+
+        # Filter op sport als een specifieke sport gekozen is
+        if sportfilter:
+            uploaded_files = [
+                uf for uf in uploaded_files
+                if _detect_sport_from_path(uf._path) == sportfilter
+            ]
+
         st.caption(f"{len(uploaded_files)} FIT-bestanden geselecteerd uit repo")
     else:
         uploaded_files = st.file_uploader(
@@ -698,10 +736,29 @@ with st.sidebar:
             accept_multiple_files=True,
             label_visibility="collapsed",
         )
-        sportfilter = st.text_input(
-            "Sportfilter (optioneel)",
-            placeholder="bijv. running",
-        )
+
+        if uploaded_files:
+            # Schrijf tijdelijk weg voor sport-detectie
+            _tmp_paden = []
+            _tmp_dir = tempfile.mkdtemp()
+            for uf in uploaded_files:
+                _tp = os.path.join(_tmp_dir, uf.name)
+                with open(_tp, 'wb') as _f:
+                    _f.write(uf.read())
+                uf.seek(0)
+                _tmp_paden.append(_tp)
+
+            beschikbare_sporten = scan_sporten(tuple(_tmp_paden))
+            shutil.rmtree(_tmp_dir, ignore_errors=True)
+
+            if beschikbare_sporten:
+                sport_opties = ["Alle sporten"] + beschikbare_sporten
+                gekozen_sport = st.selectbox("Sport", sport_opties, index=0)
+                sportfilter = None if gekozen_sport == "Alle sporten" else gekozen_sport
+            else:
+                sportfilter = None
+        else:
+            sportfilter = None
 
     st.markdown('<div class="section-label">Model-instellingen</div>', unsafe_allow_html=True)
 
