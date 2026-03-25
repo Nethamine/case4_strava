@@ -411,23 +411,37 @@ def run_cv(
         df_train = _df_features[_df_features['run_id'] != test_run_id].copy()
         df_test  = _df_features[_df_features['run_id'] == test_run_id].copy()
 
+        # Sla fold over als train of test te klein is
+        if len(df_train) < 10 or len(df_test) < 2:
+            continue
+
         X_train = df_train[feature_cols].fillna(0)
         y_train = df_train[target_col]
         X_test  = df_test[feature_cols].fillna(0)
         y_test  = df_test[target_col]
 
+        # Sla over als er onvoldoende variatie is in de target
+        if y_train.nunique() < 2:
+            continue
+
         fold_scores = {}
         for mnaam, mfactory in modellen_def.items():
-            m = mfactory()
-            m.fit(X_train, y_train)
-            y_pred = m.predict(X_test)
-            mae  = mean_absolute_error(y_test, y_pred)
-            rmse = np.sqrt(mean_squared_error(y_test, y_pred))
-            r2   = r2_score(y_test, y_pred)
-            cv_scores[mnaam]['MAE'].append(mae)
-            cv_scores[mnaam]['RMSE'].append(rmse)
-            cv_scores[mnaam]['R2'].append(r2)
-            fold_scores[mnaam] = {'MAE': mae, 'y_pred': y_pred.tolist()}
+            try:
+                m = mfactory()
+                m.fit(X_train, y_train)
+                y_pred = m.predict(X_test)
+                mae  = mean_absolute_error(y_test, y_pred)
+                rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+                r2   = r2_score(y_test, y_pred)
+                cv_scores[mnaam]['MAE'].append(mae)
+                cv_scores[mnaam]['RMSE'].append(rmse)
+                cv_scores[mnaam]['R2'].append(r2)
+                fold_scores[mnaam] = {'MAE': mae, 'y_pred': y_pred.tolist()}
+            except Exception:
+                continue
+
+        if not fold_scores:
+            continue
 
         beste = min(fold_scores, key=lambda m: fold_scores[m]['MAE'])
         fold_resultaten[test_run_id] = {
@@ -436,6 +450,20 @@ def run_cv(
             'y_pred':     fold_scores[beste]['y_pred'],
             'model_naam': beste,
         }
+
+    # Filter modellen zonder scores (alle folds overgeslagen)
+    cv_scores = {k: v for k, v in cv_scores.items() if v['MAE']}
+    if not cv_scores:
+        raise RuntimeError(
+            "Geen enkele fold kon worden getraind. "
+            "Controleer of de FIT-bestanden voldoende rijdata bevatten "
+            "(enhanced_speed, heart_rate, cadence)."
+        )
+    if not fold_resultaten:
+        raise RuntimeError(
+            "Geen resultaten beschikbaar. Mogelijk hebben alle activiteiten "
+            "te weinig bruikbare datapunten na opschonen."
+        )
 
     beste_naam = min(cv_scores, key=lambda m: np.mean(cv_scores[m]['MAE']))
 
