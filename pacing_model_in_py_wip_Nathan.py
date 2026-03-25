@@ -17,33 +17,70 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.pipeline import Pipeline
 
+import time
 import warnings
 warnings.filterwarnings('ignore')
 
-print('Imports geslaagd')
+
+# ─────────────────────────────────────────────
+#  VOORTGANGSLOGGER  –  print stap + timing
+# ─────────────────────────────────────────────
+_stap_teller = 0
+_stap_starttijd = None
+_script_start = time.time()
+
+def stap(beschrijving: str):
+    """Print een genummerde stap-header met tijdstempel."""
+    global _stap_teller, _stap_starttijd
+    # Sluit vorige stap af met duur
+    if _stap_starttijd is not None:
+        duur = time.time() - _stap_starttijd
+        print(f'  ✓ klaar in {duur:.1f}s\n')
+    _stap_teller += 1
+    _stap_starttijd = time.time()
+    elapsed = time.time() - _script_start
+    print(f'{"═"*60}')
+    print(f'  STAP {_stap_teller}  │  {beschrijving}')
+    print(f'         │  t = {elapsed:.1f}s sinds start')
+    print(f'{"═"*60}')
+
+def stap_klaar():
+    """Sluit de laatste stap af met timing."""
+    global _stap_starttijd
+    if _stap_starttijd is not None:
+        duur = time.time() - _stap_starttijd
+        totaal = time.time() - _script_start
+        print(f'  ✓ klaar in {duur:.1f}s  (totaal: {totaal:.1f}s)')
+        _stap_starttijd = None
+
+
+stap('Imports laden')
+print('  Alle imports geslaagd')
 
 # %%
-# ─────────────────────────────────────────────
-#  CONFIGURATIE  –  pas hier aan
-# ─────────────────────────────────────────────
+stap('Configuratie inlezen')
 
 # Optie 1: geef een lijst van losse bestanden mee
-FIT_FILES = [
-    'data/StravaRobin/Midwintermarathon_Apeldoorn.fit',
-    'data/StravaRobin/Turnhout_Gravel.fit',
-]
+FIT_FILES = []
 
 # Optie 2: laad een hele map in (zet op None om te deactiveren)
-FIT_DIRECTORY = None          # bijv. 'data/StravaRobin'
+FIT_DIRECTORY = ['/workspaces/case4_strava/data/StravaJan/activities_dump_download', 
+                 '/workspaces/case4_strava/data/StravaJan', 
+                 '/workspaces/case4_strava/data/StravaPieter', 
+                 '/workspaces/case4_strava/data/StravaPieter/Alle activiteiten', 
+                 '/workspaces/case4_strava/data/StravaRobin', 
+                 '/workspaces/case4_strava/data/StravaRobin/Alle activiteiten'
+                 ]         # bijv. 'data/StravaRobin'
 FILE_EXTENSIONS = ('.fit', '.fit.gz')
+print(f'  FIT_FILES:     {FIT_FILES}')
+print(f'  FIT_DIRECTORY: {FIT_DIRECTORY}')
+print(f'  Extensies:     {FILE_EXTENSIONS}')
 
 # ─────────────────────────────────────────────
 
 
 # %%
-# ─────────────────────────────────────────────
-#  HULPFUNCTIES
-# ─────────────────────────────────────────────
+stap('Hulpfuncties definiëren')
 
 def _open_fit(filepath: str) -> FitFile:
     """Open een .fit of .fit.gz bestand en retourneer een FitFile object."""
@@ -101,12 +138,9 @@ def load_fit_file(filepath: str) -> pd.DataFrame:
 
 def collect_filepaths(
     file_list: list[str] | None = None,
-    directory: str | None = None,
+    directory: str | list[str] | None = None,  # ← ook lijst toegestaan
     extensions: tuple[str, ...] = ('.fit', '.fit.gz'),
 ) -> list[str]:
-    """
-    Combineer een handmatige lijst én een map tot één lijst van unieke paden.
-    """
     paths = set()
 
     if file_list:
@@ -116,14 +150,16 @@ def collect_filepaths(
             else:
                 print(f'[WAARSCHUWING] Bestand niet gevonden, overgeslagen: {p}')
 
-    if directory:
-        if os.path.isdir(directory):
-            for fname in os.listdir(directory):
-                # Controleer op .fit.gz eerst (endswith checkt de langste extensie)
+    # Normaliseer naar lijst (ook als het een enkele string is)
+    directories = [directory] if isinstance(directory, str) else (directory or [])
+
+    for d in directories:
+        if os.path.isdir(d):
+            for fname in os.listdir(d):
                 if any(fname.endswith(ext) for ext in extensions):
-                    paths.add(os.path.abspath(os.path.join(directory, fname)))
+                    paths.add(os.path.abspath(os.path.join(d, fname)))
         else:
-            print(f'[WAARSCHUWING] Map niet gevonden: {directory}')
+            print(f'[WAARSCHUWING] Map niet gevonden: {d}')
 
     return sorted(paths)
 
@@ -209,11 +245,12 @@ def find_two_matching_files(
         f'Voeg meer .fit bestanden toe of pas FIT_DIRECTORY aan.'
     )
 
+print('  Functies gedefinieerd: _open_fit, detect_sport, load_fit_file,')
+print('    collect_filepaths, find_two_matching_files')
+
 
 # %%
-# ─────────────────────────────────────────────
-#  BESTANDEN INLADEN
-# ─────────────────────────────────────────────
+stap('FIT-bestanden inladen & sport detecteren')
 
 raw_dataframes, detected_sport = find_two_matching_files(
     file_list=FIT_FILES,
@@ -228,9 +265,7 @@ if not raw_dataframes:
 
 
 # %%
-# ─────────────────────────────────────────────
-#  DATA OPSCHONEN
-# ─────────────────────────────────────────────
+stap('Data opschonen (filters, interpolatie, timestamps)')
 
 def clean_fit_data(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -293,9 +328,7 @@ print(f'\nTotaal gecombineerd: {len(df_all)} tijdstappen uit {len(clean_datafram
 
 
 # %%
-# ─────────────────────────────────────────────
-#  FEATURE ENGINEERING
-# ─────────────────────────────────────────────
+stap('Feature engineering (per activiteit, rolling windows)')
 
 def engineer_features(df: pd.DataFrame, window: int = 60) -> pd.DataFrame:
     """
@@ -333,14 +366,24 @@ def engineer_features(df: pd.DataFrame, window: int = 60) -> pd.DataFrame:
     return df
 
 
-df_features = engineer_features(df_all)
+# ── FIX: Features PER activiteit berekenen ──────────────────
+# Rolling features (hr_drift, cadence_trend, cumsum) mogen niet
+# over de grens van twee activiteiten heen lopen. Daarom berekenen
+# we ze per run_id en voegen ze daarna weer samen.
+
+feature_parts = []
+for run_id, grp in df_all.groupby('run_id'):
+    grp_feat = engineer_features(grp)
+    feature_parts.append(grp_feat)
+    print(f'  run {run_id}: {len(grp_feat)} rijen, '
+          f'{len([c for c in grp_feat.columns if "_rolling" in c or "drift" in c or "trend" in c])} rolling features')
+
+df_features = pd.concat(feature_parts, ignore_index=True)
 print(f'Features beschikbaar: {list(df_features.columns)}')
 
 
 # %%
-# ─────────────────────────────────────────────
-#  MODEL TRAINEN
-# ─────────────────────────────────────────────
+stap('Model configuratie')
 
 FEATURE_COLS = [col for col in [
     'heart_rate', 'cadence', 'heart_rate_rolling', 'cadence_rolling',
@@ -350,91 +393,104 @@ FEATURE_COLS = [col for col in [
 ] if col in df_features.columns]
 
 TARGET_COL  = 'enhanced_speed'
-TRAIN_RATIO = 0.90   # eerste 90% van elke activiteit = training
 DREMPEL_PCT = -10    # >10% langzamer dan voorspeld = muur
 
 print(f'Gebruikte features: {FEATURE_COLS}')
 print(f'Target:             {TARGET_COL}')
-print(f'Train/test split:   {int(TRAIN_RATIO*100)}/{int((1-TRAIN_RATIO)*100)} per activiteit')
+print(f'Validatie:          Leave-one-activity-out cross-validation')
 
 
 # %%
-# ─────────────────────────────────────────────
-#  90/10 SPLIT PER ACTIVITEIT
-# ─────────────────────────────────────────────
-# Train  = eerste 90% van ELKE activiteit gecombineerd
-# Test   = laatste 10% van ELKE activiteit afzonderlijk
+stap('Leave-one-activity-out cross-validation')
+# Per fold: train op ALLE andere activiteiten, test op de
+# volledige doelactiviteit. Dit voorkomt data leakage: het model
+# heeft nooit data van de te voorspellen activiteit gezien.
 
-train_parts = []
-test_parts  = {}   # run_id → DataFrame
-
-for run_id, grp in df_features.groupby('run_id'):
-    grp      = grp.sort_values('elapsed_seconds').copy()
-    cutoff   = grp['elapsed_seconds'].max() * TRAIN_RATIO
-    naam     = grp['source_file'].iloc[0]
-
-    trn = grp[grp['elapsed_seconds'] <= cutoff]
-    tst = grp[grp['elapsed_seconds'] >  cutoff]
-
-    train_parts.append(trn)
-    test_parts[run_id] = tst
-
-    print(f'  run {run_id} ({naam}): '
-          f'{len(trn)} train-stappen | {len(tst)} test-stappen '
-          f'(split @ {int(cutoff)}s)')
-
-df_train = pd.concat(train_parts, ignore_index=True)
-X_train  = df_train[FEATURE_COLS].fillna(0)
-y_train  = df_train[TARGET_COL]
-print(f'\nTotale trainingsset: {len(X_train)} tijdstappen '
-      f'(90% van alle {len(test_parts)} activiteiten gecombineerd)')
-
-
-# %%
-# ─────────────────────────────────────────────
-#  MODELLEN TRAINEN  (één model op gecombineerde trainingsset)
-# ─────────────────────────────────────────────
-
-modellen = {
-    'Lineaire Regressie': Pipeline([('scaler', StandardScaler()), ('model', LinearRegression())]),
-    'Random Forest':      RandomForestRegressor(n_estimators=100, random_state=42),
-    'Gradient Boosting':  GradientBoostingRegressor(n_estimators=100, random_state=42),
+modellen_def = {
+    'Lineaire Regressie': lambda: Pipeline([('scaler', StandardScaler()), ('model', LinearRegression())]),
+    'Random Forest':      lambda: RandomForestRegressor(n_estimators=100, random_state=42),
+    'Gradient Boosting':  lambda: GradientBoostingRegressor(n_estimators=100, random_state=42),
 }
 
-# Evalueer modellen op de gecombineerde testset (alle laatste 10%)
-df_test_all = pd.concat(test_parts.values(), ignore_index=True)
-X_test_all  = df_test_all[FEATURE_COLS].fillna(0)
-y_test_all  = df_test_all[TARGET_COL]
+alle_run_ids = sorted(df_features['run_id'].unique())
+print(f'Leave-one-out CV over {len(alle_run_ids)} activiteiten\n')
 
-resultaten = {}
-for naam, model in modellen.items():
-    model.fit(X_train, y_train)
-    y_pred = model.predict(X_test_all)
-    resultaten[naam] = {
-        'model':  model,
-        'MAE':    mean_absolute_error(y_test_all, y_pred),
-        'RMSE':   np.sqrt(mean_squared_error(y_test_all, y_pred)),
-        'R2':     r2_score(y_test_all, y_pred),
+# Verzamel scores per model over alle folds
+cv_scores = {naam: {'MAE': [], 'RMSE': [], 'R2': []} for naam in modellen_def}
+
+# Bewaar per fold de beste voorspellingen voor visualisatie later
+fold_resultaten = {}   # run_id → dict met voorspellingen
+
+for test_run_id in alle_run_ids:
+    # Split: alles behalve deze activiteit = train
+    df_train_fold = df_features[df_features['run_id'] != test_run_id].copy()
+    df_test_fold  = df_features[df_features['run_id'] == test_run_id].copy()
+
+    naam_test = df_test_fold['source_file'].iloc[0]
+    print(f'─── Fold: test op run {test_run_id} ({naam_test}) ───')
+    print(f'    Train: {len(df_train_fold)} stappen van '
+          f'{df_train_fold["run_id"].nunique()} andere activiteit(en)')
+    print(f'    Test:  {len(df_test_fold)} stappen')
+
+    X_train_fold = df_train_fold[FEATURE_COLS].fillna(0)
+    y_train_fold = df_train_fold[TARGET_COL]
+    X_test_fold  = df_test_fold[FEATURE_COLS].fillna(0)
+    y_test_fold  = df_test_fold[TARGET_COL]
+
+    fold_model_scores = {}
+    for model_naam, model_factory in modellen_def.items():
+        model = model_factory()          # vers model per fold
+        model.fit(X_train_fold, y_train_fold)
+        y_pred = model.predict(X_test_fold)
+
+        mae  = mean_absolute_error(y_test_fold, y_pred)
+        rmse = np.sqrt(mean_squared_error(y_test_fold, y_pred))
+        r2   = r2_score(y_test_fold, y_pred)
+
+        cv_scores[model_naam]['MAE'].append(mae)
+        cv_scores[model_naam]['RMSE'].append(rmse)
+        cv_scores[model_naam]['R2'].append(r2)
+
+        fold_model_scores[model_naam] = {
+            'model': model, 'MAE': mae, 'y_pred': y_pred
+        }
+        print(f'    {model_naam:25s} → MAE: {mae:.4f} | RMSE: {rmse:.4f} | R²: {r2:.4f}')
+
+    # Bewaar voorspellingen van het beste model in deze fold
+    beste_in_fold = min(fold_model_scores, key=lambda m: fold_model_scores[m]['MAE'])
+    fold_resultaten[test_run_id] = {
+        'naam':       naam_test,
+        'df_test':    df_test_fold,
+        'y_pred':     fold_model_scores[beste_in_fold]['y_pred'],
+        'model_naam': beste_in_fold,
+        'model':      fold_model_scores[beste_in_fold]['model'],
     }
-    print(f'{naam:25s} → MAE: {resultaten[naam]["MAE"]:.4f} | '
-          f'RMSE: {resultaten[naam]["RMSE"]:.4f} | R²: {resultaten[naam]["R2"]:.4f}')
-
-beste_naam  = min(resultaten, key=lambda x: resultaten[x]['MAE'])
-beste_model = resultaten[beste_naam]['model']
-print(f'\nBeste model: {beste_naam}')
+    print()
 
 
 # %%
-# ─────────────────────────────────────────────
-#  RESULTATEN & MUUR-DETECTIE  (per activiteit)
-# ─────────────────────────────────────────────
+stap('CV-resultaten samenvatten')
+
+print('═══ Gemiddelde scores over alle folds ═══')
+for model_naam, scores in cv_scores.items():
+    avg_mae  = np.mean(scores['MAE'])
+    avg_rmse = np.mean(scores['RMSE'])
+    avg_r2   = np.mean(scores['R2'])
+    print(f'{model_naam:25s} → MAE: {avg_mae:.4f} | RMSE: {avg_rmse:.4f} | R²: {avg_r2:.4f}')
+
+beste_naam = min(cv_scores, key=lambda m: np.mean(cv_scores[m]['MAE']))
+print(f'\nBeste model (laagste gemiddelde MAE): {beste_naam}')
+
+
+# %%
+stap('Muur-detectie per activiteit')
 
 activiteit_resultaten = {}
 
-for run_id, df_tst in test_parts.items():
-    naam   = df_tst['source_file'].iloc[0]
-    X_tst  = df_tst[FEATURE_COLS].fillna(0)
-    y_pred = beste_model.predict(X_tst)
+for run_id, fold in fold_resultaten.items():
+    naam    = fold['naam']
+    df_tst  = fold['df_test']
+    y_pred  = fold['y_pred']
 
     df_res = df_tst[['elapsed_seconds', 'enhanced_speed',
                       'heart_rate', 'cadence', 'source_file']].copy()
@@ -454,56 +510,42 @@ for run_id, df_tst in test_parts.items():
 
     activiteit_resultaten[run_id] = {
         'naam':          naam,
-        'df_train':      df_train[df_train['run_id'] == run_id],
+        'df_full':       df_tst,         # volledige activiteit (was testset in deze fold)
         'df_result':     df_res,
         'muur_tijdstap': muur_tijdstap,
+        'model_naam':    fold['model_naam'],
     }
 
 
 # %%
-# ─────────────────────────────────────────────
-#  VISUALISATIE  (één grafiek per activiteit)
-# ─────────────────────────────────────────────
+stap('Visualisatie genereren (Plotly grafieken)')
 
 KLEUREN = ['steelblue', 'darkorange', 'mediumpurple', 'seagreen']
 
 for run_id, res in activiteit_resultaten.items():
-    kleur        = KLEUREN[(run_id - 1) % len(KLEUREN)]
-    naam         = res['naam']
-    df_trn       = res['df_train']
-    df_res       = res['df_result']
+    kleur         = KLEUREN[(run_id - 1) % len(KLEUREN)]
+    naam          = res['naam']
+    df_res        = res['df_result']
     muur_tijdstap = res['muur_tijdstap']
-    cutoff_s     = df_trn['elapsed_seconds'].max()
+    model_naam    = res['model_naam']
 
     fig = go.Figure()
 
-    # Trainingsgedeelte (90%)
-    fig.add_trace(go.Scatter(
-        x=df_trn['elapsed_seconds'] / 60,
-        y=df_trn['enhanced_speed'],
-        name='Werkelijk (train 90%)',
-        line=dict(color=kleur, width=1.5)
-    ))
-
-    # Testgedeelte werkelijk (laatste 10%)
+    # Werkelijke snelheid (hele activiteit)
     fig.add_trace(go.Scatter(
         x=df_res['elapsed_seconds'] / 60,
         y=df_res['enhanced_speed'],
-        name='Werkelijk (test 10%)',
-        line=dict(color='orange', width=1.5)
+        name='Werkelijk',
+        line=dict(color=kleur, width=1.5)
     ))
 
-    # Voorspelling testgedeelte
+    # Voorspelling (getraind op ANDERE activiteiten)
     fig.add_trace(go.Scatter(
         x=df_res['elapsed_seconds'] / 60,
         y=df_res['speed_predicted'],
-        name='Voorspeld (test 10%)',
+        name='Voorspeld (leave-one-out)',
         line=dict(color='green', width=2, dash='dash')
     ))
-
-    # Splitlijn
-    fig.add_vline(x=cutoff_s / 60, line_dash='dot', line_color='gray',
-                  annotation_text='90% split')
 
     # Muur
     if muur_tijdstap:
@@ -512,20 +554,47 @@ for run_id, res in activiteit_resultaten.items():
 
     fig.update_layout(
         title=f'Pacing Model – {naam}<br>'
-              f'<sup>Model: {beste_naam}  |  sport: {detected_sport}</sup>',
+              f'<sup>Model: {model_naam} (leave-one-out)  |  sport: {detected_sport}</sup>',
         xaxis_title='Tijd (minuten)',
         yaxis_title='Snelheid (m/s)',
         legend=dict(orientation='h', yanchor='bottom', y=1.02),
         height=450,
     )
     fig.show()
+    print(f'  Grafiek {run_id}/{len(activiteit_resultaten)}: {naam}')
 
-# ─────────────────────────────────────────────
-#  FEATURE IMPORTANCE
-# ─────────────────────────────────────────────
-if hasattr(beste_model, 'feature_importances_'):
-    importances = pd.Series(beste_model.feature_importances_, index=FEATURE_COLS)
+# %%
+stap('Feature importance berekenen')
+# Train een finaal model op ALLE data voor de feature importance plot.
+# (De CV-scores hierboven geven de eerlijke generalisatie-meting.)
+
+finaal_model_def = modellen_def[beste_naam]
+finaal_model = finaal_model_def()
+X_all = df_features[FEATURE_COLS].fillna(0)
+y_all = df_features[TARGET_COL]
+finaal_model.fit(X_all, y_all)
+
+# Haal het onderliggende model op (bij Pipeline zit het in .named_steps)
+_model_voor_importance = (finaal_model.named_steps['model']
+                          if hasattr(finaal_model, 'named_steps')
+                          else finaal_model)
+
+if hasattr(_model_voor_importance, 'feature_importances_'):
+    importances = pd.Series(_model_voor_importance.feature_importances_, index=FEATURE_COLS)
     importances.sort_values().plot(kind='barh', figsize=(8, 5),
-                                   title=f'Feature Importance – {beste_naam}')
+                                   title=f'Feature Importance – {beste_naam} (alle data)')
     plt.tight_layout()
     plt.show()
+elif hasattr(_model_voor_importance, 'coef_'):
+    importances = pd.Series(np.abs(_model_voor_importance.coef_), index=FEATURE_COLS)
+    importances.sort_values().plot(kind='barh', figsize=(8, 5),
+                                   title=f'Coëfficiënten (abs) – {beste_naam} (alle data)')
+    plt.tight_layout()
+    plt.show()
+
+# %%
+stap_klaar()
+totaal = time.time() - _script_start
+print(f'\n{"═"*60}')
+print(f'  SCRIPT VOLTOOID  │  {_stap_teller} stappen in {totaal:.1f}s')
+print(f'{"═"*60}')
