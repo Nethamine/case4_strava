@@ -915,6 +915,7 @@ if run_btn:
                 tick(f"Bestand {i}/{n_files}: {uf.name} – overgeslagen (geen bruikbare data)")
                 continue
             df_clean['source_file'] = uf.name
+            df_clean['sport'] = sport or 'onbekend'
             clean_dfs.append(df_clean)
             sport_labels.append(sport)
             cached_count += int(was_cached)
@@ -923,7 +924,8 @@ if run_btn:
                      + (" (cache)" if was_cached else " – parsen..."))
             tick(label)
 
-        detected_sport = sport_labels[0]
+        detected_sport = sport_labels[0] if sport_labels else 'onbekend'
+        sport_per_run  = {i+1: s for i, s in enumerate(sport_labels)}
 
         # ── Laag 2: feature engineering ───────────────
         tick("Feature engineering…")
@@ -954,6 +956,7 @@ if run_btn:
             **cv_resultaat,
             'activiteit_resultaten': act_res,
             'detected_sport':        detected_sport,
+            'sport_per_run':         sport_per_run,
             'drempel_pct':           drempel_pct,
             'cached_count':          cached_count,
             'n_files':               n_files,
@@ -984,10 +987,11 @@ if 'results' not in st.session_state:
     st.stop()
 
 results    = st.session_state['results']
-act_res    = results['activiteit_resultaten']
-cv_scores  = results['cv_scores']
-beste_naam = results['beste_naam']
-sport      = results['detected_sport']
+act_res      = results['activiteit_resultaten']
+cv_scores    = results['cv_scores']
+beste_naam   = results['beste_naam']
+sport        = results['detected_sport']
+sport_per_run = results.get('sport_per_run', {})
 cached_cnt = results.get('cached_count', 0)
 n_files    = results.get('n_files', len(act_res))
 
@@ -1090,7 +1094,9 @@ with tab_grafieken:
         muur   = res['muur_tijdstap']
         t_min  = df_res['elapsed_seconds'] / 60
 
-        with st.expander(f"{naam}", expanded=True):
+        act_sport = sport_per_run.get(run_id, '')
+    sport_tag  = f"  ·  {act_sport.upper()}" if act_sport and act_sport not in ('onbekend',) else ''
+    with st.expander(f"{naam}{sport_tag}", expanded=True):
             if muur:
                 muur_min = int(muur // 60)
                 st.markdown(
