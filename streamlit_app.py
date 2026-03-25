@@ -905,12 +905,12 @@ if cached_cnt > 0:
         unsafe_allow_html=True,
     )
 
-# ── KPI-balk ──
-st.markdown('<div class="section-label">Samenvatting</div>', unsafe_allow_html=True)
+# ── KPI-balk (altijd zichtbaar boven de tabs) ──
 avg_mae = np.mean(cv_scores[beste_naam]['MAE'])
 avg_r2  = np.mean(cv_scores[beste_naam]['R2'])
 n_muur  = sum(1 for r in act_res.values() if r['muur_tijdstap'] is not None)
 
+st.markdown('<div class="section-label">Samenvatting</div>', unsafe_allow_html=True)
 kpi_cols = st.columns(5)
 kpi_data = [
     ("Sport",        sport.capitalize(), ""),
@@ -928,16 +928,25 @@ for col, (label, val, unit) in zip(kpi_cols, kpi_data):
         </div>
         """, unsafe_allow_html=True)
 
-# ── CV-scoretabel ──
-st.markdown('<div class="section-label">Cross-validatie scores</div>', unsafe_allow_html=True)
-cv_rows = [{
-    'Model':      mnaam,
-    'MAE (m/s)':  f"{np.mean(s['MAE']):.4f}",
-    'RMSE (m/s)': f"{np.mean(s['RMSE']):.4f}",
-    'R²':         f"{np.mean(s['R2']):.4f}",
-    'Beste':      'ja' if mnaam == beste_naam else '',
-} for mnaam, s in cv_scores.items()]
-st.dataframe(pd.DataFrame(cv_rows), use_container_width=True, hide_index=True)
+st.markdown("", unsafe_allow_html=True)  # spacer
+
+# ── Tabs ──
+tab_grafieken, tab_cv, tab_importance = st.tabs([
+    "Pacing grafieken",
+    "Cross-validatie scores",
+    "Feature importance",
+])
+
+with tab_cv:
+    st.markdown('<div class="section-label">Cross-validatie scores</div>', unsafe_allow_html=True)
+    cv_rows = [{
+        'Model':      mnaam,
+        'MAE (m/s)':  f"{np.mean(s['MAE']):.4f}",
+        'RMSE (m/s)': f"{np.mean(s['RMSE']):.4f}",
+        'R²':         f"{np.mean(s['R2']):.4f}",
+        'Beste':      'ja' if mnaam == beste_naam else '',
+    } for mnaam, s in cv_scores.items()]
+    st.dataframe(pd.DataFrame(cv_rows), use_container_width=True, hide_index=True)
 
 # ── Per activiteit: grafieken ──
 KLEUREN = ['#00c8ff', '#ff6b35', '#b084ff', '#2ecc71']
@@ -962,147 +971,150 @@ _LAYOUT = dict(
     yaxis=dict(gridcolor='#1e2535', linecolor='#1e2535', showgrid=True),
 )
 
-st.markdown('<div class="section-label">Pacing grafieken per activiteit</div>', unsafe_allow_html=True)
+with tab_grafieken:
+    st.markdown('<div class="section-label">Pacing grafieken per activiteit</div>', unsafe_allow_html=True)
+    for run_id, res in act_res.items():
+        kleur  = KLEUREN[(run_id - 1) % len(KLEUREN)]
+        naam   = res['naam']
+        df_res = _truncate(res['df_result'])   # truncate staart
+        muur   = res['muur_tijdstap']
+        t_min  = df_res['elapsed_seconds'] / 60
 
-for run_id, res in act_res.items():
-    kleur  = KLEUREN[(run_id - 1) % len(KLEUREN)]
-    naam   = res['naam']
-    df_res = _truncate(res['df_result'])   # truncate staart
-    muur   = res['muur_tijdstap']
-    t_min  = df_res['elapsed_seconds'] / 60
+        with st.expander(f"{naam}", expanded=True):
+            if muur:
+                muur_min = int(muur // 60)
+                st.markdown(
+                    f'<span class="muur-badge">Muur gedetecteerd – minuut {muur_min} ({int(muur)}s)</span>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(
+                    '<span class="geen-muur-badge">Geen muur – consistent pacing</span>',
+                    unsafe_allow_html=True,
+                )
 
-    with st.expander(f"{naam}", expanded=True):
-        if muur:
-            muur_min = int(muur // 60)
-            st.markdown(
-                f'<span class="muur-badge">Muur gedetecteerd – minuut {muur_min} ({int(muur)}s)</span>',
-                unsafe_allow_html=True,
-            )
-        else:
-            st.markdown(
-                '<span class="geen-muur-badge">Geen muur – consistent pacing</span>',
-                unsafe_allow_html=True,
-            )
+            # ── Snelheidsgrafiek  (werkelijk vs voorspeld) ──────────────
+            fig = go.Figure()
 
-        # ── Snelheidsgrafiek  (werkelijk vs voorspeld) ──────────────
-        fig = go.Figure()
-
-        # Gearceerd vlak tussen de twee lijnen voor duidelijke scheiding
-        fig.add_trace(go.Scatter(
-            x=pd.concat([t_min, t_min[::-1]]),
-            y=pd.concat([
-                _smooth(df_res['speed_predicted']),
-                _smooth(df_res['enhanced_speed'])[::-1]
-            ]),
-            fill='toself',
-            fillcolor='rgba(0,200,255,0.07)',
-            line=dict(width=0),
-            hoverinfo='skip',
-            showlegend=False,
-            name='verschil',
-        ))
-
-        # Voorspeld – dikke gestippelde lijn, wit
-        fig.add_trace(go.Scatter(
-            x=t_min, y=_smooth(df_res['speed_predicted']),
-            name='Voorspeld',
-            line=dict(color='#ffffff', width=2.5, dash='dot'),
-        ))
-
-        # Werkelijk – kleurrijke volle lijn, iets transparant
-        fig.add_trace(go.Scatter(
-            x=t_min, y=_smooth(df_res['enhanced_speed']),
-            name='Werkelijk',
-            line=dict(color=kleur, width=2),
-        ))
-
-        if muur:
-            fig.add_vline(
-                x=muur / 60, line_color='#e74c3c', line_width=2,
-                annotation_text='Muur', annotation_font_color='#e74c3c',
-                annotation_position='top right',
-            )
-
-        fig.update_layout(
-            **_LAYOUT,
-            title=dict(text='Snelheid (m/s)', font=dict(size=13, color='#c8d0e0')),
-            xaxis_title='Tijd (min)', yaxis_title='m/s',
-            legend=dict(orientation='h', y=1.12, font=dict(size=11),
-                        bgcolor='rgba(0,0,0,0)'),
-            height=320,
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-        c1, c2 = st.columns(2)
-
-        # ── Afwijking ────────────────────────────────────────────────
-        with c1:
-            afw = _smooth(df_res['afwijking_pct'], w=30)
-            fig2 = go.Figure()
-            # Gearceerd gebied onder nul
-            fig2.add_trace(go.Scatter(
-                x=t_min, y=afw.clip(upper=0),
-                fill='tozeroy', fillcolor='rgba(231,76,60,0.15)',
-                line=dict(width=0), showlegend=False, hoverinfo='skip',
-            ))
-            fig2.add_trace(go.Scatter(
-                x=t_min, y=afw,
-                line=dict(color='#8899aa', width=1.5),
-                fill='tozeroy',
-                fillcolor='rgba(136,153,170,0.08)',
+            # Gearceerd vlak tussen de twee lijnen voor duidelijke scheiding
+            fig.add_trace(go.Scatter(
+                x=pd.concat([t_min, t_min[::-1]]),
+                y=pd.concat([
+                    _smooth(df_res['speed_predicted']),
+                    _smooth(df_res['enhanced_speed'])[::-1]
+                ]),
+                fill='toself',
+                fillcolor='rgba(0,200,255,0.07)',
+                line=dict(width=0),
+                hoverinfo='skip',
                 showlegend=False,
+                name='verschil',
             ))
-            fig2.add_hline(y=0, line_color='#4a5568', line_width=1)
-            fig2.add_hline(
-                y=drempel_pct, line_dash='dot', line_color='#e74c3c', line_width=1.5,
-                annotation_text=f'Drempel {drempel_pct}%',
-                annotation_font_color='#e74c3c', annotation_position='bottom right',
-            )
-            fig2.update_layout(
-                **_LAYOUT,
-                title=dict(text='Afwijking (%)', font=dict(size=13, color='#c8d0e0')),
-                xaxis_title='Tijd (min)', yaxis_title='%',
-                height=260,
-            )
-            st.plotly_chart(fig2, use_container_width=True)
 
-        # ── Hartslag ─────────────────────────────────────────────────
-        with c2:
-            if 'heart_rate' in df_res.columns:
-                fig3 = go.Figure()
-                fig3.add_trace(go.Scatter(
-                    x=t_min, y=_smooth(df_res['heart_rate'], w=15),
-                    line=dict(color='#e74c3c', width=1.8),
-                    fill='tozeroy', fillcolor='rgba(231,76,60,0.06)',
+            # Voorspeld – dikke gestippelde lijn, wit
+            fig.add_trace(go.Scatter(
+                x=t_min, y=_smooth(df_res['speed_predicted']),
+                name='Voorspeld',
+                line=dict(color='#ffffff', width=2.5, dash='dot'),
+            ))
+
+            # Werkelijk – kleurrijke volle lijn, iets transparant
+            fig.add_trace(go.Scatter(
+                x=t_min, y=_smooth(df_res['enhanced_speed']),
+                name='Werkelijk',
+                line=dict(color=kleur, width=2),
+            ))
+
+            if muur:
+                fig.add_vline(
+                    x=muur / 60, line_color='#e74c3c', line_width=2,
+                    annotation_text='Muur', annotation_font_color='#e74c3c',
+                    annotation_position='top right',
+                )
+
+            fig.update_layout(
+                **_LAYOUT,
+                title=dict(text='Snelheid (m/s)', font=dict(size=13, color='#c8d0e0')),
+                xaxis_title='Tijd (min)', yaxis_title='m/s',
+                legend=dict(orientation='h', y=1.12, font=dict(size=11),
+                            bgcolor='rgba(0,0,0,0)'),
+                height=320,
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+            c1, c2 = st.columns(2)
+
+            # ── Afwijking ────────────────────────────────────────────────
+            with c1:
+                afw = _smooth(df_res['afwijking_pct'], w=30)
+                fig2 = go.Figure()
+                # Gearceerd gebied onder nul
+                fig2.add_trace(go.Scatter(
+                    x=t_min, y=afw.clip(upper=0),
+                    fill='tozeroy', fillcolor='rgba(231,76,60,0.15)',
+                    line=dict(width=0), showlegend=False, hoverinfo='skip',
+                ))
+                fig2.add_trace(go.Scatter(
+                    x=t_min, y=afw,
+                    line=dict(color='#8899aa', width=1.5),
+                    fill='tozeroy',
+                    fillcolor='rgba(136,153,170,0.08)',
                     showlegend=False,
                 ))
-                if muur:
-                    fig3.add_vline(x=muur / 60, line_color='#e74c3c', line_width=1.5)
-                fig3.update_layout(
+                fig2.add_hline(y=0, line_color='#4a5568', line_width=1)
+                fig2.add_hline(
+                    y=drempel_pct, line_dash='dot', line_color='#e74c3c', line_width=1.5,
+                    annotation_text=f'Drempel {drempel_pct}%',
+                    annotation_font_color='#e74c3c', annotation_position='bottom right',
+                )
+                fig2.update_layout(
                     **_LAYOUT,
-                    title=dict(text='Hartslag (bpm)', font=dict(size=13, color='#c8d0e0')),
-                    xaxis_title='Tijd (min)', yaxis_title='bpm',
+                    title=dict(text='Afwijking (%)', font=dict(size=13, color='#c8d0e0')),
+                    xaxis_title='Tijd (min)', yaxis_title='%',
                     height=260,
                 )
-                st.plotly_chart(fig3, use_container_width=True)
+                st.plotly_chart(fig2, use_container_width=True)
 
-# ── Feature importance ──
-if results.get('importances') is not None:
-    st.markdown('<div class="section-label">Feature importance</div>', unsafe_allow_html=True)
-    imp = results['importances']
-    fig_imp = go.Figure(go.Bar(
-        x=imp.values, y=imp.index, orientation='h', marker_color='#00c8ff',
-    ))
-    fig_imp.update_layout(
-        title=dict(text=f'{beste_naam} – getraind op alle data',
-                   font=dict(size=13, color='#c8d0e0')),
-        plot_bgcolor='#10131c', paper_bgcolor='#10131c',
-        font=dict(color='#8899aa'),
-        height=350, margin=dict(l=150, r=20, t=50, b=40),
-        xaxis=dict(gridcolor='#1e2535', linecolor='#1e2535', title='Belang'),
-        yaxis=dict(gridcolor='#1e2535', linecolor='#1e2535'),
-    )
-    st.plotly_chart(fig_imp, use_container_width=True)
+            # ── Hartslag ─────────────────────────────────────────────────
+            with c2:
+                if 'heart_rate' in df_res.columns:
+                    fig3 = go.Figure()
+                    fig3.add_trace(go.Scatter(
+                        x=t_min, y=_smooth(df_res['heart_rate'], w=15),
+                        line=dict(color='#e74c3c', width=1.8),
+                        fill='tozeroy', fillcolor='rgba(231,76,60,0.06)',
+                        showlegend=False,
+                    ))
+                    if muur:
+                        fig3.add_vline(x=muur / 60, line_color='#e74c3c', line_width=1.5)
+                    fig3.update_layout(
+                        **_LAYOUT,
+                        title=dict(text='Hartslag (bpm)', font=dict(size=13, color='#c8d0e0')),
+                        xaxis_title='Tijd (min)', yaxis_title='bpm',
+                        height=260,
+                    )
+                    st.plotly_chart(fig3, use_container_width=True)
+
+
+with tab_importance:
+    if results.get('importances') is not None:
+        st.markdown('<div class="section-label">Feature importance</div>', unsafe_allow_html=True)
+        imp = results['importances']
+        fig_imp = go.Figure(go.Bar(
+            x=imp.values, y=imp.index, orientation='h', marker_color='#00c8ff',
+        ))
+        fig_imp.update_layout(
+            title=dict(text=f'{beste_naam} – getraind op alle data',
+                       font=dict(size=13, color='#c8d0e0')),
+            plot_bgcolor='#10131c', paper_bgcolor='#10131c',
+            font=dict(color='#8899aa'),
+            height=400, margin=dict(l=160, r=20, t=50, b=40),
+            xaxis=dict(gridcolor='#1e2535', linecolor='#1e2535', title='Belang'),
+            yaxis=dict(gridcolor='#1e2535', linecolor='#1e2535'),
+        )
+        st.plotly_chart(fig_imp, use_container_width=True)
+    else:
+        st.info("Geen feature importance beschikbaar voor het gekozen model.")
 
 st.markdown("---")
 st.markdown(
