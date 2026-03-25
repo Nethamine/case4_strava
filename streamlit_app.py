@@ -1044,13 +1044,14 @@ def _activiteit_label(rid):
 _label_naar_rid = {_activiteit_label(rid): rid for rid in _alle_namen}
 _standaard      = list(_label_naar_rid.keys())[:_max_weer]
 
-gekozen_labels = st.multiselect(
+gekozen_labels = st.selectbox(
     "Activiteiten weergeven",
     options=list(_label_naar_rid.keys()),
-    default=_standaard,
-    help="Selecteer welke activiteiten je in de grafieken wilt zien. "
+    index=0,
+    help="Selecteer welke activiteit je in de grafieken wilt zien. "
          "Het model is getraind op alle geselecteerde activiteiten.",
 )
+gekozen_labels = [gekozen_labels] if gekozen_labels else []
 
 _weer_ids    = [_label_naar_rid[l] for l in gekozen_labels]
 act_res_weer = {rid: act_res[rid] for rid in _weer_ids}
