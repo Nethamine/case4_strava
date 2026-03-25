@@ -440,7 +440,7 @@ def run_cv(
             continue
 
         X_train = df_train[feature_cols].fillna(0)
-        y_train = df_train[target_col].fillna(method=None)
+        y_train = df_train[target_col]
         X_test  = df_test[feature_cols].fillna(0)
         y_test  = df_test[target_col]
 
@@ -718,6 +718,10 @@ with st.sidebar:
 
     st.markdown("---")
     run_btn = st.button("▶  Analyse uitvoeren")
+    if st.button("Cache wissen"):
+        st.cache_data.clear()
+        st.session_state.clear()
+        st.rerun()
 
 # ──────────────────────────────────────────────
 #  UPLOAD-CHECK
