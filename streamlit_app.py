@@ -569,7 +569,6 @@ with st.sidebar:
             if f['athlete'] in gekozen_atleten
         ]
         st.caption(f"{len(uploaded_files)} FIT-bestanden geselecteerd uit repo")
-    st.caption(f"Pad: `{_BASE}`")
     else:
         uploaded_files = st.file_uploader(
             "Upload .fit of .fit.gz bestanden",
