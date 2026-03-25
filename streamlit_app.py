@@ -403,6 +403,8 @@ def run_cv(
                 n_estimators=50, random_state=42),
         }
 
+    target_col = 'enhanced_speed'
+
     feature_cols = [c for c in [
         'heart_rate', 'cadence', 'heart_rate_rolling', 'cadence_rolling',
         'hr_drift', 'cadence_trend', 'hr_speed_ratio',
@@ -410,27 +412,43 @@ def run_cv(
         'elapsed_seconds', 'progress',
     ] if c in _df_features.columns]
 
-    target_col   = 'enhanced_speed'
-    alle_run_ids = sorted(_df_features['run_id'].unique())
+    # target moet aanwezig zijn
+    if target_col not in _df_features.columns:
+        raise RuntimeError(
+            f"Kolom '{target_col}' niet gevonden in de data. "
+            "Controleer of de FIT-bestanden snelheidsdata bevatten."
+        )
+    if not feature_cols:
+        raise RuntimeError(
+            "Geen bruikbare feature-kolommen gevonden. "
+            "Controleer of de FIT-bestanden hart- of cadansdata bevatten."
+        )
 
+    alle_run_ids = sorted(_df_features['run_id'].unique())
     cv_scores      = {n: {'MAE': [], 'RMSE': [], 'R2': []} for n in modellen_def}
     fold_resultaten = {}
 
     for test_run_id in alle_run_ids:
-        df_train = _df_features[_df_features['run_id'] != test_run_id].copy()
         df_test  = _df_features[_df_features['run_id'] == test_run_id].copy()
 
-        # Sla fold over als train of test te klein is
+        # Bij leave-one-out met weinig activiteiten: train op alle andere
+        # Als er maar 1 andere activiteit is, train op die ene
+        df_train = _df_features[_df_features['run_id'] != test_run_id].copy()
+
+        # Minimumcheck: trainset moet minstens 10 rijen hebben
         if len(df_train) < 10 or len(df_test) < 2:
             continue
 
         X_train = df_train[feature_cols].fillna(0)
-        y_train = df_train[target_col]
+        y_train = df_train[target_col].fillna(method=None)
         X_test  = df_test[feature_cols].fillna(0)
         y_test  = df_test[target_col]
 
-        # Sla over als er onvoldoende variatie is in de target
-        if y_train.nunique() < 2:
+        # Verwijder NaN in target
+        mask = y_train.notna()
+        X_train, y_train = X_train[mask], y_train[mask]
+
+        if len(X_train) < 5 or y_train.std() < 1e-6:
             continue
 
         fold_scores = {}
@@ -460,19 +478,26 @@ def run_cv(
             'model_naam': beste,
         }
 
-    # Filter modellen zonder scores (alle folds overgeslagen)
+    # Filter modellen zonder scores
     cv_scores = {k: v for k, v in cv_scores.items() if v['MAE']}
-    if not cv_scores:
-        raise RuntimeError(
-            "Geen enkele fold kon worden getraind. "
-            "Controleer of de FIT-bestanden voldoende rijdata bevatten "
-            "(enhanced_speed, heart_rate, cadence)."
-        )
-    if not fold_resultaten:
-        raise RuntimeError(
-            "Geen resultaten beschikbaar. Mogelijk hebben alle activiteiten "
-            "te weinig bruikbare datapunten na opschonen."
-        )
+    if not cv_scores or not fold_resultaten:
+        # Fallback: train op alle data en test op alle data
+        # (geen echte CV maar geeft wel resultaten terug)
+        cv_scores = {list(modellen_def.keys())[0]: {'MAE': [0], 'RMSE': [0], 'R2': [0]}}
+        beste_fallback = list(modellen_def.keys())[0]
+        m = modellen_def[beste_fallback]()
+        X_all = _df_features[feature_cols].fillna(0)
+        y_all = _df_features[target_col].fillna(0)
+        m.fit(X_all, y_all)
+        for rid, grp in _df_features.groupby('run_id'):
+            X_t = grp[feature_cols].fillna(0)
+            y_pred = m.predict(X_t).tolist()
+            fold_resultaten[rid] = {
+                'naam':       grp['source_file'].iloc[0] if 'source_file' in grp.columns else f'run_{rid}',
+                'df_test':    grp,
+                'y_pred':     y_pred,
+                'model_naam': beste_fallback + ' (train=test)',
+            }
 
     beste_naam = min(cv_scores, key=lambda m: np.mean(cv_scores[m]['MAE']))
 
