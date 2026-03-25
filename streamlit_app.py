@@ -563,7 +563,7 @@ def detect_muur(fold_resultaten: dict, drempel_pct: int) -> dict:
         df_res['afwijking']       = df_res['enhanced_speed'] - df_res['speed_predicted']
         df_res['afwijking_pct']   = (df_res['afwijking'] / df_res['speed_predicted']) * 100
 
-        kandidaten    = df_res[df_res['afwijking_pct'] < drempel_pct]
+        kandidaten    = df_res[df_res['afwijking_pct'] > drempel_pct]
         muur_tijdstap = kandidaten.iloc[0]['elapsed_seconds'] if not kandidaten.empty else None
 
         resultaten[run_id] = {
@@ -775,8 +775,8 @@ with st.sidebar:
 
     drempel_pct = st.slider(
         "Muur-drempel (%)",
-        min_value=-30, max_value=-1, value=-10, step=1,
-        help="Hoe ver de werkelijke snelheid onder de voorspelling moet vallen.",
+        min_value=1, max_value=30, value=10, step=1,
+        help="Hoeveel procent de werkelijke snelheid boven de voorspelling moet uitkomen om als muur te tellen.",
     )
     rolling_window = st.slider(
         "Rolling window (sec)",
@@ -1181,7 +1181,7 @@ with tab_grafieken:
                 fig2 = go.Figure()
                 # Gearceerd gebied onder nul
                 fig2.add_trace(go.Scatter(
-                    x=t_min, y=afw.clip(upper=0),
+                    x=t_min, y=afw.clip(lower=0),
                     fill='tozeroy', fillcolor='rgba(231,76,60,0.15)',
                     line=dict(width=0), showlegend=False, hoverinfo='skip',
                 ))
@@ -1208,8 +1208,8 @@ with tab_grafieken:
                 )
                 fig2.add_hline(
                     y=drempel_pct, line_dash='dot', line_color='#e74c3c', line_width=1,
-                    annotation_text=f'Drempel {drempel_pct}%',
-                    annotation_font_color='#e74c3c', annotation_position='bottom left',
+                    annotation_text=f'Drempel +{drempel_pct}%',
+                    annotation_font_color='#e74c3c', annotation_position='top left',
                 )
                 fig2.update_layout(
                     **_LAYOUT,
