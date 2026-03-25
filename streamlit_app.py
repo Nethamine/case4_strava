@@ -784,7 +784,7 @@ with st.sidebar:
         help="Groter venster = soepelere features, iets minder precies.",
     )
 
-    st.markdown('<div class="speed-box-label">Snelheid vs nauwkeurigheid</div>', unsafe_allow_html=True)
+    st.markdown('<div class="speed-box-label">Model Snelheid</div>', unsafe_allow_html=True)
 
     max_activiteiten = st.slider(
         "Max. activiteiten (model)",
