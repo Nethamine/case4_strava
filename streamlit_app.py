@@ -801,26 +801,7 @@ for i, (uf, fhash, fbytes) in enumerate(_zichtbaar):
         """, unsafe_allow_html=True)
 
 if _verborgen:
-    namen = ", ".join(uf.name for uf, _, _ in _verborgen)
-    totaal_kb = sum(len(fb) for _, _, fb in _verborgen) / 1024
-    st.markdown(f"""
-    <div style="
-        border-left: 3px solid #2a3a52;
-        background: #0f1520;
-        border-radius: 0 4px 4px 0;
-        padding: 0.5rem 0.75rem;
-        margin-top: 0.5rem;
-        font-size: 0.78rem;
-        color: #6b7a99;
-        line-height: 1.6;
-    ">
-        <span style="color:#4a6080;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;font-size:0.68rem;">
-            + {len(_verborgen)} bestand(en) niet weergegeven
-        </span><br>
-        {namen}<br>
-        <span style="color:#3a4a5a;">{totaal_kb:.0f} KB totaal</span>
-    </div>
-    """, unsafe_allow_html=True)
+    st.caption(f"+ {len(_verborgen)} bestand(en) niet weergegeven")
 
 # ──────────────────────────────────────────────
 #  ANALYSE  –  drie gecachede lagen
