@@ -463,12 +463,9 @@ def detect_muur(fold_resultaten: dict, drempel_pct: int) -> dict:
 #  Streamlit Cloud en Codespaces)
 # ──────────────────────────────────────────────
 
-# Mappen relatief aan de locatie van dit script.
-# Streamlit Cloud: /mount/src/<repo>/  –  os.getcwd() geeft de repo-root.
+# Bepaal repo-root: probeer meerdere bekende locaties
+# Repo-root = map waar dit script staat
 _BASE = os.path.dirname(os.path.abspath(__file__))
-# Fallback: als __file__ geen bruikbaar pad geeft, gebruik cwd
-if not os.path.isdir(os.path.join(_BASE, "data")):
-    _BASE = os.getcwd()
 
 REPO_DIRS = [
     os.path.join(_BASE, "data", "StravaJan"),
@@ -572,6 +569,7 @@ with st.sidebar:
             if f['athlete'] in gekozen_atleten
         ]
         st.caption(f"{len(uploaded_files)} FIT-bestanden geselecteerd uit repo")
+    st.caption(f"Pad: `{_BASE}`")
     else:
         uploaded_files = st.file_uploader(
             "Upload .fit of .fit.gz bestanden",
