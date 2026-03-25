@@ -459,16 +459,119 @@ def detect_muur(fold_resultaten: dict, drempel_pct: int) -> dict:
 
 
 # ──────────────────────────────────────────────
+#  REPO-DATA LADEN  (relatief pad, werkt op
+#  Streamlit Cloud en Codespaces)
+# ──────────────────────────────────────────────
+
+# Mappen relatief aan de locatie van dit script
+_BASE = os.path.dirname(os.path.abspath(__file__))
+
+REPO_DIRS = [
+    os.path.join(_BASE, "data", "StravaJan"),
+    os.path.join(_BASE, "data", "StravaJan", "activities_dump_download"),
+    os.path.join(_BASE, "data", "StravaPieter"),
+    os.path.join(_BASE, "data", "StravaPieter", "Alle activiteiten"),
+    os.path.join(_BASE, "data", "StravaRobin"),
+    os.path.join(_BASE, "data", "StravaRobin", "Alle activiteiten"),
+]
+FIT_EXTENSIONS = ('.fit', '.fit.gz')
+
+
+def scan_repo_files() -> list[dict]:
+    """
+    Doorzoek alle REPO_DIRS en geef een gesorteerde lijst van
+    {'path': ..., 'name': ..., 'athlete': ...} terug.
+    """
+    seen = set()
+    found = []
+    for d in REPO_DIRS:
+        if not os.path.isdir(d):
+            continue
+        # Bepaal atleet-naam uit map-structuur (bijv. StravaJan -> Jan)
+        parts = d.replace("\\", "/").split("/")
+        strava_part = next((p for p in parts if p.startswith("Strava")), "Onbekend")
+        athlete = strava_part.replace("Strava", "")
+        for fname in sorted(os.listdir(d)):
+            if any(fname.endswith(ext) for ext in FIT_EXTENSIONS):
+                full = os.path.abspath(os.path.join(d, fname))
+                if full not in seen:
+                    seen.add(full)
+                    found.append({'path': full, 'name': fname, 'athlete': athlete})
+    return found
+
+
+# ──────────────────────────────────────────────
+#  WRAPPER: RepoFile  –  gedraagt zich als
+#  UploadedFile zodat de rest van de code
+#  ongewijzigd blijft
+# ──────────────────────────────────────────────
+
+class RepoFile:
+    """Lichtgewicht wrapper om een pad op disk als 'uploaded file' aan te bieden."""
+    def __init__(self, path: str):
+        self._path = path
+        self.name  = os.path.basename(path)
+        with open(path, 'rb') as f:
+            self._bytes = f.read()
+
+    def read(self) -> bytes:
+        return self._bytes
+
+    def seek(self, _):
+        pass  # geen echte file pointer nodig
+
+    def getvalue(self) -> bytes:
+        return self._bytes
+
+
+# ──────────────────────────────────────────────
 #  SIDEBAR
 # ──────────────────────────────────────────────
+repo_files = scan_repo_files()
+has_repo_data = len(repo_files) >= 2
+
 with st.sidebar:
-    st.markdown('<div class="section-label">Bestanden</div>', unsafe_allow_html=True)
-    uploaded_files = st.file_uploader(
-        "Upload .fit of .fit.gz bestanden",
-        type=['fit', 'gz'],
-        accept_multiple_files=True,
-        label_visibility="collapsed",
-    )
+    st.markdown('<div class="section-label">Databron</div>', unsafe_allow_html=True)
+
+    if has_repo_data:
+        bron = st.radio(
+            "Bron",
+            ["Repo-data (automatisch)", "Eigen bestanden uploaden"],
+            label_visibility="collapsed",
+        )
+    else:
+        bron = "Eigen bestanden uploaden"
+        st.caption("Geen repo-data gevonden in /data/Strava*")
+
+    if bron == "Repo-data (automatisch)":
+        # Selecteer welke atleten mee te nemen
+        atleten = sorted({f['athlete'] for f in repo_files})
+        gekozen_atleten = st.multiselect(
+            "Atleten",
+            atleten,
+            default=atleten,
+        )
+        sportfilter = st.text_input(
+            "Sportfilter (optioneel)",
+            placeholder="bijv. running",
+        )
+        uploaded_files = [
+            RepoFile(f['path'])
+            for f in repo_files
+            if f['athlete'] in gekozen_atleten
+        ]
+        st.caption(f"{len(uploaded_files)} FIT-bestanden geselecteerd uit repo")
+    else:
+        uploaded_files = st.file_uploader(
+            "Upload .fit of .fit.gz bestanden",
+            type=['fit', 'gz'],
+            accept_multiple_files=True,
+            label_visibility="collapsed",
+        )
+        sportfilter = st.text_input(
+            "Sportfilter (optioneel)",
+            placeholder="bijv. running",
+        )
 
     st.markdown('<div class="section-label">Model-instellingen</div>', unsafe_allow_html=True)
     drempel_pct = st.slider(
@@ -479,11 +582,6 @@ with st.sidebar:
     rolling_window = st.slider(
         "Rolling window (sec)",
         min_value=10, max_value=300, value=60, step=10,
-    )
-    st.text_input(
-        "Sportfilter (optioneel)",
-        placeholder="bijv. running",
-        help="Laat leeg voor automatisch detectie.",
     )
 
     st.markdown("---")
@@ -498,13 +596,13 @@ if not uploaded_files:
         <h3 style="color:#4a5568;font-family:'Barlow Condensed',sans-serif;margin:0 0 0.5rem;">
             Geen bestanden geladen
         </h3>
-        <p style="margin:0;">Upload minimaal twee .fit of .fit.gz bestanden in de zijbalk om te beginnen.</p>
+        <p style="margin:0;">Selecteer atleten uit de repo-data of upload eigen .fit bestanden via de zijbalk.</p>
     </div>
     """, unsafe_allow_html=True)
     st.stop()
 
 if len(uploaded_files) < 2:
-    st.warning("Upload minimaal **twee** FIT-bestanden voor leave-one-out validatie.")
+    st.warning("Selecteer minimaal **twee** FIT-bestanden voor leave-one-out validatie.")
     st.stop()
 
 # ──────────────────────────────────────────────
