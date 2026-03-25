@@ -547,15 +547,14 @@ if run_btn:
     n_models = 3
     # Stap-gewichten:  parse(n) + features(1) + cv_folds(n * n_models) + muur(1)
     total_stappen = n_files + 1 + (n_files * n_models) + 1
-    stap_nu = 0
+    stap_nu = [0]  # list zodat inner functie kan muteren zonder nonlocal
 
     pbar  = st.progress(0, text="Start…")
     plog  = st.empty()
 
     def tick(label: str):
-        nonlocal stap_nu
-        stap_nu += 1
-        pct = int(stap_nu / total_stappen * 100)
+        stap_nu[0] += 1
+        pct = int(stap_nu[0] / total_stappen * 100)
         pbar.progress(min(pct, 99), text=label)
         plog.markdown(
             f'<span style="color:#6b7a99;font-size:0.8rem;">▸ {label}</span>',
