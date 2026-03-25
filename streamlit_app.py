@@ -781,7 +781,7 @@ with st.sidebar:
 
     drempel_pct = st.slider(
         "Muur-drempel (%)",
-        min_value=1, max_value=30, value=10, step=1,
+        min_value=1, max_value=15, value=10, step=1,
         help="Hoeveel procent de werkelijke snelheid onder de voorspelling moet zakken om als muur te tellen.",
     )
     rolling_window = st.slider(
@@ -790,7 +790,7 @@ with st.sidebar:
         help="Groter venster = soepelere features, iets minder precies.",
     )
 
-    st.markdown('<div class="speed-box-label">Snelheid vs nauwkeurigheid</div>', unsafe_allow_html=True)
+    st.markdown('<div class="speed-box-label">Snelheid Model</div>', unsafe_allow_html=True)
 
     max_activiteiten = st.slider(
         "Max. activiteiten (model)",
