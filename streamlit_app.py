@@ -503,8 +503,9 @@ def run_cv(
 
     # Finaal model voor feature importance
     finaal_model = modellen_def[beste_naam]()
-    X_all = _df_features[feature_cols].fillna(0)
-    y_all = _df_features[target_col]
+    _mask_all = _df_features[target_col].notna()
+    X_all = _df_features.loc[_mask_all, feature_cols].fillna(0)
+    y_all = _df_features.loc[_mask_all, target_col]
     finaal_model.fit(X_all, y_all)
 
     inner = (finaal_model.named_steps['model']
