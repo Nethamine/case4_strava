@@ -775,7 +775,7 @@ with st.sidebar:
 
     drempel_pct = st.slider(
         "Muur-drempel (%)",
-        min_value=-30, max_value=-5, value=-10, step=1,
+        min_value=-15, max_value=-5, value=-10, step=1,
         help="Hoe ver de werkelijke snelheid onder de voorspelling moet vallen.",
     )
     rolling_window = st.slider(
