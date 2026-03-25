@@ -716,7 +716,7 @@ with st.sidebar:
         help="Groter venster = soepelere features, iets minder precies.",
     )
 
-    st.markdown('<div class="speed-box-label">Model snelheid</div>', unsafe_allow_html=True)
+    st.markdown('<div class="speed-box-label">Snelheid vs nauwkeurigheid</div>', unsafe_allow_html=True)
 
     max_activiteiten = st.slider(
         "Max. activiteiten",
@@ -1066,7 +1066,7 @@ with tab_grafieken:
                             bgcolor='rgba(0,0,0,0)'),
                 height=320,
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key=f"speed_{run_id}")
 
             c1, c2 = st.columns(2)
 
@@ -1099,7 +1099,7 @@ with tab_grafieken:
                     xaxis_title='Tijd (min)', yaxis_title='%',
                     height=260,
                 )
-                st.plotly_chart(fig2, use_container_width=True)
+                st.plotly_chart(fig2, use_container_width=True, key=f"afw_{run_id}")
 
             # ── Hartslag ─────────────────────────────────────────────────
             with c2:
@@ -1119,7 +1119,7 @@ with tab_grafieken:
                         xaxis_title='Tijd (min)', yaxis_title='bpm',
                         height=260,
                     )
-                    st.plotly_chart(fig3, use_container_width=True)
+                    st.plotly_chart(fig3, use_container_width=True, key=f"hr_{run_id}")
 
 
 with tab_importance:
