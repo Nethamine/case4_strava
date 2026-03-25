@@ -563,7 +563,13 @@ def detect_muur(fold_resultaten: dict, drempel_pct: int) -> dict:
         df_res['afwijking']       = df_res['enhanced_speed'] - df_res['speed_predicted']
         df_res['afwijking_pct']   = (df_res['afwijking'] / df_res['speed_predicted']) * 100
 
-        kandidaten    = df_res[df_res['afwijking_pct'] < drempel_pct]
+        # Smooth de afwijking licht voor stabielere detectie (venster 10s)
+        afw_smooth = df_res['afwijking_pct'].rolling(window=10, min_periods=1, center=True).mean()
+        # Muur = eerste moment waarop de gesmoothe afwijking minstens 5 opeenvolgende
+        # seconden onder de drempel blijft (voorkomt vals-positieven door ruis)
+        onder_drempel = (afw_smooth < -drempel_pct).astype(int)
+        aanhoudend    = onder_drempel.rolling(window=5, min_periods=5).sum() == 5
+        kandidaten    = df_res[aanhoudend]
         muur_tijdstap = kandidaten.iloc[0]['elapsed_seconds'] if not kandidaten.empty else None
 
         resultaten[run_id] = {
@@ -775,8 +781,8 @@ with st.sidebar:
 
     drempel_pct = st.slider(
         "Muur-drempel (%)",
-        min_value=-15, max_value=-5, value=-10, step=1,
-        help="Hoe ver de werkelijke snelheid onder de voorspelling moet vallen.",
+        min_value=1, max_value=30, value=10, step=1,
+        help="Hoeveel procent de werkelijke snelheid onder de voorspelling moet zakken om als muur te tellen.",
     )
     rolling_window = st.slider(
         "Rolling window (sec)",
@@ -784,7 +790,7 @@ with st.sidebar:
         help="Groter venster = soepelere features, iets minder precies.",
     )
 
-    st.markdown('<div class="speed-box-label">Model Snelheid</div>', unsafe_allow_html=True)
+    st.markdown('<div class="speed-box-label">Snelheid vs nauwkeurigheid</div>', unsafe_allow_html=True)
 
     max_activiteiten = st.slider(
         "Max. activiteiten (model)",
@@ -1207,8 +1213,8 @@ with tab_grafieken:
                     annotation_font_color='#e74c3c', annotation_position='bottom right',
                 )
                 fig2.add_hline(
-                    y=drempel_pct, line_dash='dot', line_color='#e74c3c', line_width=1,
-                    annotation_text=f'Drempel {drempel_pct}%',
+                    y=-drempel_pct, line_dash='dot', line_color='#e74c3c', line_width=1,
+                    annotation_text=f'Drempel -{drempel_pct}%',
                     annotation_font_color='#e74c3c', annotation_position='bottom left',
                 )
                 fig2.update_layout(
