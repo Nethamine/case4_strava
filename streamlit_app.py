@@ -1055,6 +1055,10 @@ gekozen_labels = st.multiselect(
 _weer_ids    = [_label_naar_rid[l] for l in gekozen_labels]
 act_res_weer = {rid: act_res[rid] for rid in _weer_ids}
 
+if not act_res_weer:
+    st.warning("Selecteer minimaal één activiteit om resultaten te zien.")
+    st.stop()
+
 tab_grafieken, tab_cv, tab_importance = st.tabs([
     "Pacing grafieken",
     "Cross-validatie scores",
