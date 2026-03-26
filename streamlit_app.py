@@ -1199,7 +1199,13 @@ with tab_cv:
         test_naam  = alle_namen_cv[test_id]
         test_sport = sport_per_run.get(test_id, '')
         sport_tag  = f"  ·  {test_sport.upper()}" if test_sport and test_sport != 'onbekend' else ''
-        train_namen = [alle_namen_cv[rid] for rid in alle_run_ids if rid != test_id]
+        train_namen = []
+        for rid in alle_run_ids:
+            if rid != test_id:
+                naam = alle_namen_cv[rid]
+                sport = sport_per_run.get(rid, '')
+                sport_tag = f"  ·  {sport.upper()}" if sport and sport != 'onbekend' else ''
+                train_namen.append(f"{naam}{sport_tag}")
         train_rijen = "".join(
             f'<tr><td style="padding:0.2rem 0.75rem;color:#6b7a99;font-size:0.78rem;">{n}</td></tr>'
             for n in train_namen
