@@ -322,20 +322,21 @@ with st.expander("**Over dit dashboard**", expanded=True):
 
     with col_verhaal:
         st.markdown("**`MACHINE LEARNING` · `SPORTANALYSE` · `PACING` · `MUURDETECTIE`**")
-        st.markdown("### Iedereen die sport heeft het wel eens meegemaakt. Tijdens het sporten begint je lichaam op een bepaald moment *nee* te zeggen.")
+        st.markdown("### Elke sporter kent het gevoel — ergens in de tweede helft begint het lichaam *nee* te zeggen.")
         st.markdown("---")
         st.markdown(
-            "Dit dashboard analyseert bepaalde Strava FIT-bestanden en bouwt een **machine learning model** "
-            "dat leert wanneer *het lichaam* nee zegt. Op basis van hartslag, cadans en snelheid leert het model jouw  sportpatroon te herkennen."
+            "Dit dashboard analyseert jouw Strava FIT-bestanden en bouwt een **machine learning model** "
+            "dat leert hoe jij normaal presteert. Op basis van hartslag, cadans en snelheid uit de "
+            "**eerste 90% van je activiteiten** leert het model jouw typische pacing-patroon kennen."
         )
         st.markdown(
-            "Vervolgens vergelijkt het model de **voorspelde snelheid** met hoe je werkelijk hebt gesport. "
-            " Wijkt jouw tempo significant af van de verwachting? Dan detecteert het dashboard "
-            "automatisch de **muur** , het moment waarop het lichaam dus *nee* zegt."
+            "Vervolgens vergelijkt het model de **voorspelde snelheid** met wat je werkelijk hebt gelopen "
+            "of gefietst. Wijkt jouw tempo significant af van de verwachting? Dan detecteert het dashboard "
+            "automatisch de **muur** — het moment waarop vermoeidheid de overhand nam en je pacing instortte."
         )
         st.markdown(
             "Met **leave-one-out cross-validatie** worden de resultaten getoetst: elk bestand fungeert "
-            "om de beurt als testset terwijl het model traint op alle overige activiteiten. "
+            "beurtelings als testset terwijl het model traint op alle overige activiteiten. "
             "Zo krijg je een eerlijk beeld van hoe goed het model generaliseert naar nieuwe inspanningen."
         )
 
@@ -647,8 +648,24 @@ def run_cv(
     }
 
 
-def detect_muur(fold_resultaten: dict, drempel_pct: int) -> dict:
+def detect_pacing_events(
+    fold_resultaten: dict,
+    drempel_pct: int,
+    aanhoudend_sec: int = 30,
+    start_pct: float = 0.15,
+) -> dict:
+    """
+    Detecteert twee events per activiteit:
+      - muur : werkelijkheid blijft aanhoudend ONDER de voorspelling
+      - flow : werkelijkheid blijft aanhoudend BOVEN de voorspelling
+
+    Parameters:
+        drempel_pct    - minimale afwijking in % om te tellen
+        aanhoudend_sec - aantal opeenvolgende seconden boven/onder drempel
+        start_pct      - eerste X% van activiteit negeren (opstartgedrag)
+    """
     resultaten = {}
+
     for run_id, fold in fold_resultaten.items():
         df_tst = fold['df_test']
         y_pred = np.array(fold['y_pred'])
@@ -657,22 +674,45 @@ def detect_muur(fold_resultaten: dict, drempel_pct: int) -> dict:
         for opt in ['heart_rate', 'cadence', 'source_file']:
             if opt in df_tst.columns:
                 cols.append(opt)
-        df_res = df_tst[cols].copy()
+        df_res = df_tst[cols].copy().reset_index(drop=True)
 
         df_res['speed_predicted'] = y_pred
         df_res['afwijking']       = df_res['enhanced_speed'] - df_res['speed_predicted']
         df_res['afwijking_pct']   = (df_res['afwijking'] / df_res['speed_predicted']) * 100
 
+        # Smooth de afwijking om ruis te dempen
         afw_smooth = df_res['afwijking_pct'].rolling(window=10, min_periods=1, center=True).mean()
-        onder_drempel = (afw_smooth < -drempel_pct).astype(int)
-        aanhoudend    = onder_drempel.rolling(window=5, min_periods=5).sum() == 5
-        kandidaten    = df_res[aanhoudend]
-        muur_tijdstap = kandidaten.iloc[0]['elapsed_seconds'] if not kandidaten.empty else None
+
+        # Eerste start_pct% van activiteit negeren
+        max_sec  = df_res['elapsed_seconds'].max()
+        start_sec = max_sec * start_pct
+        geldig    = df_res['elapsed_seconds'] >= start_sec
+
+        def _eerste_aanhoudende(richting: str):
+            if richting == 'onder':
+                vlag = (afw_smooth < -drempel_pct).astype(int)
+            else:
+                vlag = (afw_smooth > drempel_pct).astype(int)
+
+            aanhoudend = vlag.rolling(
+                window=aanhoudend_sec, min_periods=aanhoudend_sec
+            ).sum() == aanhoudend_sec
+
+            kandidaten = df_res[aanhoudend & geldig]
+            if kandidaten.empty:
+                return None
+            # Terug naar het begin van het aanhoudende blok
+            eerste_idx = max(kandidaten.index[0] - aanhoudend_sec + 1, 0)
+            return float(df_res.loc[eerste_idx, 'elapsed_seconds'])
+
+        muur_tijdstap = _eerste_aanhoudende('onder')
+        flow_tijdstap = _eerste_aanhoudende('boven')
 
         resultaten[run_id] = {
             'naam':          fold['naam'],
             'df_result':     df_res,
             'muur_tijdstap': muur_tijdstap,
+            'flow_tijdstap': flow_tijdstap,
             'model_naam':    fold['model_naam'],
         }
     return resultaten
@@ -1011,7 +1051,7 @@ if run_btn:
         cv_resultaat = run_cv(file_hashes, rolling_window, max_rijen, snelle_modus, df_features)
 
         tick("Muur-detectie…")
-        act_res = detect_muur(cv_resultaat['fold_resultaten'], drempel_pct)
+        act_res = detect_pacing_events(cv_resultaat['fold_resultaten'], drempel_pct)
 
         pbar.progress(100, text="Analyse klaar!")
         plog.empty()
@@ -1037,7 +1077,7 @@ if run_btn:
 elif 'results' in st.session_state:
     prev = st.session_state['results']
     if prev.get('drempel_pct') != drempel_pct:
-        act_res = detect_muur(prev['fold_resultaten'], drempel_pct)
+        act_res = detect_pacing_events(prev['fold_resultaten'], drempel_pct)
         st.session_state['results'] = {**prev,
                                         'activiteit_resultaten': act_res,
                                         'drempel_pct': drempel_pct}
@@ -1207,22 +1247,39 @@ with tab_grafieken:
         naam   = res['naam']
         df_res = _truncate(res['df_result'])
         muur   = res['muur_tijdstap']
+        flow   = res['flow_tijdstap']
         t_min  = df_res['elapsed_seconds'] / 60
 
         act_sport = sport_per_run.get(run_id, '')
         sport_tag  = f"  ·  {act_sport.upper()}" if act_sport and act_sport not in ('onbekend',) else ''
         with st.expander(f"{naam}{sport_tag}", expanded=True):
-            if muur:
-                muur_min = int(muur // 60)
-                st.markdown(
-                    f'<span class="muur-badge">Muur gedetecteerd – minuut {muur_min} ({int(muur)}s)</span>',
-                    unsafe_allow_html=True,
-                )
-            else:
-                st.markdown(
-                    '<span class="geen-muur-badge">Geen muur – consistent pacing</span>',
-                    unsafe_allow_html=True,
-                )
+            # ── Badges ──────────────────────────────────────────────────
+            badge_cols = st.columns(2)
+            with badge_cols[0]:
+                if muur:
+                    muur_min = int(muur // 60)
+                    st.markdown(
+                        f'<span class="muur-badge">🔴 Muur – minuut {muur_min} ({int(muur)}s)</span>',
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.markdown(
+                        '<span class="geen-muur-badge">✓ Geen muur</span>',
+                        unsafe_allow_html=True,
+                    )
+            with badge_cols[1]:
+                flow = res['flow_tijdstap']
+                if flow:
+                    flow_min = int(flow // 60)
+                    st.markdown(
+                        f'<span class="geen-muur-badge">🟢 Flow – minuut {flow_min} ({int(flow)}s)</span>',
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.markdown(
+                        '<span class="muur-badge">✗ Geen flow</span>',
+                        unsafe_allow_html=True,
+                    )
 
             fig = go.Figure()
             fig.add_trace(go.Scatter(
@@ -1250,6 +1307,12 @@ with tab_grafieken:
                     x=muur / 60, line_color='#e74c3c', line_width=2,
                     annotation_text='Muur', annotation_font_color='#e74c3c',
                     annotation_position='top right',
+                )
+            if flow:
+                fig.add_vline(
+                    x=flow / 60, line_color='#2ecc71', line_width=2,
+                    annotation_text='Flow', annotation_font_color='#2ecc71',
+                    annotation_position='top left',
                 )
             fig.update_layout(
                 **_LAYOUT,
@@ -1294,6 +1357,15 @@ with tab_grafieken:
                     annotation_text=f'Drempel -{drempel_pct}%',
                     annotation_font_color='#e74c3c', annotation_position='bottom left',
                 )
+                fig2.add_hline(
+                    y=drempel_pct, line_dash='dot', line_color='#2ecc71', line_width=1,
+                    annotation_text=f'Drempel +{drempel_pct}%',
+                    annotation_font_color='#2ecc71', annotation_position='top left',
+                )
+                if muur:
+                    fig2.add_vline(x=muur / 60, line_color='#e74c3c', line_width=1.5)
+                if flow:
+                    fig2.add_vline(x=flow / 60, line_color='#2ecc71', line_width=1.5)
                 fig2.update_layout(
                     **_LAYOUT,
                     title=dict(text='Afwijking (%)', font=dict(size=13, color='#c8d0e0')),
@@ -1313,6 +1385,8 @@ with tab_grafieken:
                     ))
                     if muur:
                         fig3.add_vline(x=muur / 60, line_color='#e74c3c', line_width=1.5)
+                    if flow:
+                        fig3.add_vline(x=flow / 60, line_color='#2ecc71', line_width=1.5)
                     fig3.update_layout(
                         **_LAYOUT,
                         title=dict(text='Hartslag (bpm)', font=dict(size=13, color='#c8d0e0')),
