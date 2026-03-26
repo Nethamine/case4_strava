@@ -322,21 +322,20 @@ with st.expander("**Over dit dashboard**", expanded=True):
 
     with col_verhaal:
         st.markdown("**`MACHINE LEARNING` · `SPORTANALYSE` · `PACING` · `MUURDETECTIE`**")
-        st.markdown("### Elke sporter kent het gevoel — ergens in de tweede helft begint het lichaam *nee* te zeggen.")
+        st.markdown("### Iedereen die sport heeft het wel eens meegemaakt.Tijdens het sporten begint je lichaam op een bepaald moment *nee* te zeggen.")
         st.markdown("---")
         st.markdown(
-            "Dit dashboard analyseert jouw Strava FIT-bestanden en bouwt een **machine learning model** "
-            "dat leert hoe jij normaal presteert. Op basis van hartslag, cadans en snelheid uit de "
-            "**eerste 90% van je activiteiten** leert het model jouw typische pacing-patroon kennen."
+            "Dit dashboard analyseert bepaalde Strava FIT-bestanden en bouwt een **machine learning model** "
+            "dat leert wanneer *jouw lichaam* nee zegt. Op basis van hartslag, cadans en snelheid leert het model jouw  sport patroon kennen."
         )
         st.markdown(
-            "Vervolgens vergelijkt het model de **voorspelde snelheid** met wat je werkelijk hebt gelopen "
-            "of gefietst. Wijkt jouw tempo significant af van de verwachting? Dan detecteert het dashboard "
+            "Vervolgens vergelijkt het model de **voorspelde snelheid** met hoe je werkelijk hebt gesport "
+            " Wijkt jouw tempo significant af van de verwachting? Dan detecteert het dashboard "
             "automatisch de **muur** — het moment waarop vermoeidheid de overhand nam en je pacing instortte."
         )
         st.markdown(
             "Met **leave-one-out cross-validatie** worden de resultaten getoetst: elk bestand fungeert "
-            "beurtelings als testset terwijl het model traint op alle overige activiteiten. "
+            "om de beurt als testset terwijl het model traint op alle overige activiteiten. "
             "Zo krijg je een eerlijk beeld van hoe goed het model generaliseert naar nieuwe inspanningen."
         )
 
