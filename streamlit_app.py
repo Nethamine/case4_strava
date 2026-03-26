@@ -1008,9 +1008,14 @@ if _verborgen:
 # ──────────────────────────────────────────────
 if run_btn:
     import random as _random
-    if len(uploaded_files) > max_activiteiten:
-        uploaded_files = _random.sample(uploaded_files, max_activiteiten)
-    n_files  = len(uploaded_files)
+    analysis_items = list(zip(uploaded_files, file_hashes, file_bytes_list))
+    if len(analysis_items) > max_activiteiten:
+        analysis_items = _random.sample(analysis_items, max_activiteiten)
+
+    analyzed_uploaded_files = [uf for uf, _, _ in analysis_items]
+    analyzed_file_hashes = tuple(fhash for _, fhash, _ in analysis_items)
+
+    n_files  = len(analysis_items)
     n_models = 1 if snelle_modus else 3
     total_stappen = n_files + 1 + (n_files * n_models) + 1
     stap_nu = [0]
@@ -1035,8 +1040,7 @@ if run_btn:
 
         _naam_naar_atleet = {f['name']: f['athlete'] for f in repo_files}
 
-        for i, (uf, fhash, fbytes) in enumerate(
-                zip(uploaded_files, file_hashes, file_bytes_list), start=1):
+        for i, (uf, fhash, fbytes) in enumerate(analysis_items, start=1):
 
             import time as _time
             t0 = _time.perf_counter()
@@ -1063,17 +1067,17 @@ if run_btn:
         atleet_per_run  = {i+1: a for i, a in enumerate(atleet_labels)}
 
         tick("Feature engineering…")
-        df_features = build_feature_matrix(file_hashes, rolling_window, clean_dfs)
+        df_features = build_feature_matrix(analyzed_file_hashes, rolling_window, clean_dfs)
 
         if 'source_file' not in df_features.columns:
-            src_map = {i+1: uf.name for i, uf in enumerate(uploaded_files)}
+            src_map = {i+1: uf.name for i, uf in enumerate(analyzed_uploaded_files)}
             df_features['source_file'] = df_features['run_id'].map(src_map)
 
         for fold_i in range(n_files):
             for _ in range(n_models):
                 tick(f"CV fold {fold_i+1}/{n_files} – modellen trainen…")
 
-        cv_resultaat = run_cv(file_hashes, rolling_window, max_rijen, snelle_modus, df_features)
+        cv_resultaat = run_cv(analyzed_file_hashes, rolling_window, max_rijen, snelle_modus, df_features)
 
         tick("Muur-detectie…")
         act_res = detect_pacing_events(cv_resultaat['fold_resultaten'], drempel_pct)
