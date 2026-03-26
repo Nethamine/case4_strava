@@ -878,7 +878,14 @@ with st.sidebar:
         uploaded_files = [
             RepoFile(f['path'])
             for f in repo_files
-            if f['athlete'] in gekozen_atleten and (sportfilter is None or f.get('sport') == sportfilter)
+            if (
+                f['athlete'] in gekozen_atleten
+                and (sportfilter is None or f.get('sport') == sportfilter)
+                and not (
+                    sportfilter == 'running'
+                    and f.get('name', '').lower() == 'schaatsen.fit'
+                )
+            )
         ]
 
         st.caption(f"{len(uploaded_files)} FIT-bestanden geselecteerd uit repo")
