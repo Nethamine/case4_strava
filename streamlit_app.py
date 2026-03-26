@@ -1246,8 +1246,8 @@ with tab_grafieken:
         kleur  = KLEUREN[(run_id - 1) % len(KLEUREN)]
         naam   = res['naam']
         df_res = _truncate(res['df_result'])
-        muur   = res.get['muur_tijdstap']
-        flow   = res.get['flow_tijdstap']
+        muur   = res['muur_tijdstap']
+        flow   = res['flow_tijdstap']
         t_min  = df_res['elapsed_seconds'] / 60
 
         act_sport = sport_per_run.get(run_id, '')
