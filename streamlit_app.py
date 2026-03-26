@@ -366,7 +366,8 @@ def _open_fit(filepath: str):
     return FitFile(filepath), None
 
 
-def _detect_sport_from_path(filepath: str) -> str | None:
+@st.cache_data(show_spinner=False)
+def _detect_sport_from_path(filepath: str, mtime: float | None = None) -> str | None:
     fitfile, tmp_path = _open_fit(filepath)
     sport = None
     try:
@@ -727,6 +728,7 @@ REPO_DIRS = [
 FIT_EXTENSIONS = ('.fit', '.fit.gz')
 
 
+@st.cache_data(show_spinner=False)
 def scan_repo_files() -> list[dict]:
     seen = set()
     found = []
@@ -742,7 +744,17 @@ def scan_repo_files() -> list[dict]:
                 full = os.path.join(d, fname)
                 if full not in seen and os.path.isfile(full):
                     seen.add(full)
-                    found.append({'path': full, 'name': fname, 'athlete': athlete})
+                    # detect sport once here (include mtime so cache is invalidated if file changes)
+                    try:
+                        sport = _detect_sport_from_path(full, os.path.getmtime(full))
+                    except Exception:
+                        sport = None
+                    found.append({
+                        'path': full,
+                        'name': fname,
+                        'athlete': athlete,
+                        'sport': (sport or 'onbekend'),
+                    })
     return found
 
 
@@ -821,8 +833,11 @@ with st.sidebar:
             default=atleten,
         )
 
-        alle_paden = tuple(f['path'] for f in repo_files)
-        beschikbare_sporten = scan_sporten(alle_paden)
+        # Use the precomputed `sport` field from `repo_files` (fast)
+        beschikbare_sporten = sorted({
+            f.get('sport') for f in repo_files
+            if f.get('sport') and f.get('sport').lower() not in _SPORT_BLACKLIST
+        })
 
         if beschikbare_sporten:
             sport_opties = ["Alle sporten"] + beschikbare_sporten
@@ -839,14 +854,8 @@ with st.sidebar:
         uploaded_files = [
             RepoFile(f['path'])
             for f in repo_files
-            if f['athlete'] in gekozen_atleten
+            if f['athlete'] in gekozen_atleten and (sportfilter is None or f.get('sport') == sportfilter)
         ]
-
-        if sportfilter:
-            uploaded_files = [
-                uf for uf in uploaded_files
-                if _detect_sport_from_path(uf._path) == sportfilter
-            ]
 
         st.caption(f"{len(uploaded_files)} FIT-bestanden geselecteerd uit repo")
     else:
