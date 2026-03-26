@@ -881,10 +881,7 @@ with st.sidebar:
             if (
                 f['athlete'] in gekozen_atleten
                 and (sportfilter is None or f.get('sport') == sportfilter)
-                and not (
-                    sportfilter == 'running'
-                    and f.get('name', '').lower() == 'schaatsen.fit'
-                )
+                and f.get('name', '').lower() != 'schaatsen.fit'
             )
         ]
 
