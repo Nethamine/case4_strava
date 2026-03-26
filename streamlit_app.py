@@ -326,6 +326,8 @@ with st.expander("**Over dit dashboard**", expanded=True):
         st.markdown("---")
         st.markdown(
             "Om deze vragen te kunnen beantwoorden hebben wij een dashboard gebouwd."
+        )
+        st.markdown(
             "Dit dashboard kan jouw strava FIT-bestanden analyseren en bouwt daarmee een **machine learning model** "
             "dat leert hoe jij normaal presteert. Op basis van hartslag, cadans en snelheid"
             " leert het model jouw normale sport-patroon kennen."
