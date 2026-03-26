@@ -330,20 +330,7 @@ with st.expander("**Over dit dashboard**", expanded=True):
             " In dit dashboard gaan we de bovenstaande vragen beantwoorden op een manier waar jij wat aan hebt."
             " Het enige wat je hoeft te doen is je eigen FIT-bestanden uploaden en de rest wordt voor je gedaan!"
         )
-        st.markdown(
-            "Dit dashboard kan jouw strava FIT-bestanden namelijk analyseren en bouwt daarmee een **machine learning model** "
-            "dat leert hoe jij normaal presteert. Op basis van hartslag, cadans en snelheid"
-            " leert het model jouw normale sport-patroon kennen."
-        )
-        st.markdown(
-            "Vervolgens vergelijkt het model de **voorspelde snelheid** met hoe je werkelijk hebt"
-            "gesport. Wijkt jouw tempo significant af van de verwachting? Dan detecteert het dashboard "
-            "automatisch de **afwijking**.Daarmee kan het model aangeven hoe jouw prestatie afwijkt van je verwachte patroon"
-        )
-        st.markdown(
-            "Met **leave-one-out cross-validatie** worden de resultaten getoetst: elk bestand fungeert "
-            "om de beurt als testset terwijl het model traint op alle overige activiteiten. "
-        )
+
 
     with col_stappen:
         for num, titel, tekst in [
