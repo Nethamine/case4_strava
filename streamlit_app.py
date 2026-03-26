@@ -322,16 +322,16 @@ with st.expander("**Over dit dashboard**", expanded=True):
 
     with col_verhaal:
         st.markdown("**`MACHINE LEARNING` · `SPORTANALYSE` · `PACING` · `MUURDETECTIE`**")
-        st.markdown("### Iedereen die sport heeft het wel eens meegemaakt.Tijdens het sporten begint je lichaam op een bepaald moment *nee* te zeggen.")
+        st.markdown("### Iedereen die sport heeft het wel eens meegemaakt. Tijdens het sporten begint je lichaam op een bepaald moment *nee* te zeggen.")
         st.markdown("---")
         st.markdown(
             "Dit dashboard analyseert bepaalde Strava FIT-bestanden en bouwt een **machine learning model** "
-            "dat leert wanneer *jouw lichaam* nee zegt. Op basis van hartslag, cadans en snelheid leert het model jouw  sport patroon kennen."
+            "dat leert wanneer *het lichaam* nee zegt. Op basis van hartslag, cadans en snelheid leert het model jouw  sportpatroon te herkennen."
         )
         st.markdown(
             "Vervolgens vergelijkt het model de **voorspelde snelheid** met hoe je werkelijk hebt gesport "
             " Wijkt jouw tempo significant af van de verwachting? Dan detecteert het dashboard "
-            "automatisch de **muur** — het moment waarop vermoeidheid de overhand nam en je pacing instortte."
+            "automatisch de **muur** , het moment waarop het lichaam dus *nee* zegt."
         )
         st.markdown(
             "Met **leave-one-out cross-validatie** worden de resultaten getoetst: elk bestand fungeert "
