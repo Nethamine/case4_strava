@@ -834,10 +834,23 @@ with st.sidebar:
         )
 
         # Use the precomputed `sport` field from `repo_files` (fast)
-        beschikbare_sporten = sorted({
-            f.get('sport') for f in repo_files
-            if f.get('sport') and f.get('sport').lower() not in _SPORT_BLACKLIST
-        })
+        # Build counts and filter out numeric-only codes and rare sports
+        sport_counts: dict[str, int] = {}
+        for f in repo_files:
+            s = f.get('sport')
+            if not s:
+                continue
+            s_str = str(s).strip()
+            if s_str.lower() in _SPORT_BLACKLIST:
+                continue
+            sport_counts[s_str] = sport_counts.get(s_str, 0) + 1
+
+        # Filter: skip numeric-only sport values (enum codes)
+        MIN_COUNT = 2
+        beschikbare_sporten = sorted([
+            s for s, cnt in sport_counts.items()
+            if (not s.lstrip('-').isdigit()) and cnt >= MIN_COUNT
+        ])
 
         if beschikbare_sporten:
             sport_opties = ["Alle sporten"] + beschikbare_sporten
