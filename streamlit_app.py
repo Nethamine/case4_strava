@@ -1078,6 +1078,8 @@ if run_btn:
             'atleet_per_run':        atleet_per_run,
             'drempel_pct':           drempel_pct,
             'cached_count':          cached_count,
+            # Preserve which sport was chosen in the sidebar (may be "Alle sporten")
+            'gekozen_sport':         locals().get('gekozen_sport', None),
             'n_files':               n_files,
         }
 
@@ -1113,6 +1115,13 @@ atleet_per_run = results.get('atleet_per_run', {})
 cached_cnt = results.get('cached_count', 0)
 n_files    = results.get('n_files', len(act_res))
 
+# If the sidebar selection was "Alle sporten", show "mixed" in the summary
+_gekozen_sport = results.get('gekozen_sport', None)
+if _gekozen_sport is None or _gekozen_sport == "Alle sporten":
+    display_sport = "mixed"
+else:
+    display_sport = sport.capitalize()
+
 if cached_cnt > 0:
     st.markdown(
         f'<span class="cache-hit">{cached_cnt}/{n_files} bestand(en) uit cache geladen – '
@@ -1127,7 +1136,7 @@ n_muur  = sum(1 for r in act_res.values() if r['muur_tijdstap'] is not None)
 st.markdown('<div class="section-label">Samenvatting</div>', unsafe_allow_html=True)
 kpi_cols = st.columns(5)
 kpi_data = [
-    ("Sport",        sport.capitalize(), ""),
+    ("Sport",        display_sport, ""),
     ("Activiteiten", str(n_files),       ""),
     ("Beste model",  beste_naam.replace(" ", "\u00a0"), ""),
     ("Gem. MAE",     f"{avg_mae:.3f}",   "m/s"),
