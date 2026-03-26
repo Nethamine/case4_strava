@@ -1118,7 +1118,7 @@ n_files    = results.get('n_files', len(act_res))
 # If the sidebar selection was "Alle sporten", show "mixed" in the summary
 _gekozen_sport = results.get('gekozen_sport', None)
 if _gekozen_sport is None or _gekozen_sport == "Alle sporten":
-    display_sport = "mixed"
+    display_sport = "Mixed"
 else:
     display_sport = sport.capitalize()
 
