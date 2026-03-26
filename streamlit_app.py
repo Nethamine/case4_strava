@@ -322,28 +322,27 @@ with st.expander("**Over dit dashboard**", expanded=True):
 
     with col_verhaal:
         st.markdown("**`MACHINE LEARNING` · `SPORTANALYSE` · `PACING` · `MUURDETECTIE`**")
-        st.markdown("### Elke sporter kent het gevoel — ergens in de tweede helft begint het lichaam *nee* te zeggen.")
+        st.markdown("### Elke sporter kent het gevoel wel. Ben ik goed aan het sporten? Ben ik effectief bezig?")
         st.markdown("---")
         st.markdown(
-            "Dit dashboard analyseert jouw Strava FIT-bestanden en bouwt een **machine learning model** "
-            "dat leert hoe jij normaal presteert. Op basis van hartslag, cadans en snelheid uit de "
-            "**eerste 90% van je activiteiten** leert het model jouw typische pacing-patroon kennen."
+            "Dit dashboard kan jouw strava FIT-bestanden analyseren en bouwt daarmee een **machine learning model** "
+            "dat leert hoe jij normaal presteert. Op basis van hartslag, cadans en snelheid"
+            " leert het model jouw normale sport-patroon kennen."
         )
         st.markdown(
-            "Vervolgens vergelijkt het model de **voorspelde snelheid** met wat je werkelijk hebt gelopen "
-            "of gefietst. Wijkt jouw tempo significant af van de verwachting? Dan detecteert het dashboard "
-            "automatisch de **muur** — het moment waarop vermoeidheid de overhand nam en je pacing instortte."
+            "Vervolgens vergelijkt het model de **voorspelde snelheid** met hoe je werkelijk hebt"
+            "gesport. Wijkt jouw tempo significant af van de verwachting? Dan detecteert het dashboard "
+            "automatisch de **afwijking**.Daarmee kan het model aangeven hoe jouw prestatie afwijkt van je verwachte patroon"
         )
         st.markdown(
             "Met **leave-one-out cross-validatie** worden de resultaten getoetst: elk bestand fungeert "
-            "beurtelings als testset terwijl het model traint op alle overige activiteiten. "
-            "Zo krijg je een eerlijk beeld van hoe goed het model generaliseert naar nieuwe inspanningen."
+            "om de beurt als testset terwijl het model traint op alle overige activiteiten. "
         )
 
     with col_stappen:
         for num, titel, tekst in [
-            ("1", "Upload FIT-bestanden",          "Laad twee of meer .fit of .fit.gz bestanden van dezelfde sport via de zijbalk."),
-            ("2", "Model traint automatisch",      "Het model leert jouw pacing-profiel op basis van hartslag, cadans en snelheid."),
+            ("1", "Upload FIT-bestanden",          "Je kan je eigen .fit of .fit.gz bestanden van dezelfde sport uploaden via de zijbalk!"),
+            ("2", "Model traint automatisch",      "Het model ontdekt jouw sport-patroon op basis van hartslag, cadans en snelheid."),
             ("3", "Voorspelling vs werkelijkheid", "De grafiek toont waar jouw tempo afweek van de verwachting."),
             ("4", "Muurdetectie",                  "Zodra de afwijking de drempel overschrijdt, markeert het dashboard het exacte moment."),
         ]:
