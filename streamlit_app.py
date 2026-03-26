@@ -297,11 +297,17 @@ div[data-testid="stFileUploader"] {
     border-radius: 6px;
     padding: 0.5rem;
 }
-div[data-testid="stProgress"] div[role="progressbar"] {
-    background-color: #00c8ff !important;
+/* Progress bar container */
+div[data-testid="stProgressBar"] {
+    background-color: #1e2535;
+    border-radius: 6px;
+    overflow: hidden;
 }
-div[data-testid="stProgressBar"] > div > div > div > div {
+
+/* Inner bar (de vulling) */
+div[data-testid="stProgressBar"] > div > div > div {
     background-color: #00c8ff !important;
+    border-radius: 6px;
 }
 .stSelectbox > div > div { background-color: #161b27; border-color: #252d3d; }
 hr { border-color: #1e2535; }
