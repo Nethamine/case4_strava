@@ -326,9 +326,9 @@ with st.expander("**Over dit dashboard**", expanded=True):
         st.markdown("---")
         st.markdown(
             "Herken je deze vragen? Komt dit zelf ook bij jou op?"
-            "Dan is dit dashboard gemaakt voor jou!"
-            "In dit dashboard gaan we de bovenstaande vragen beantwoorden op een manier waar jij wat aan hebt."
-            "Het enige wat je hoeft te doen is je eigen FIT-bestanden uploaden!"
+            " Dan is dit dashboard gemaakt voor jou!"
+            " In dit dashboard gaan we de bovenstaande vragen beantwoorden op een manier waar jij wat aan hebt."
+            " Het enige wat je hoeft te doen is je eigen FIT-bestanden uploaden en de rest wordt voor je gedaan!"
         )
         st.markdown(
             "Dit dashboard kan jouw strava FIT-bestanden namelijk analyseren en bouwt daarmee een **machine learning model** "
