@@ -329,7 +329,7 @@ with st.expander("**Over dit dashboard**", expanded=True):
             "dat leert wanneer *het lichaam* nee zegt. Op basis van hartslag, cadans en snelheid leert het model jouw  sportpatroon te herkennen."
         )
         st.markdown(
-            "Vervolgens vergelijkt het model de **voorspelde snelheid** met hoe je werkelijk hebt gesport "
+            "Vervolgens vergelijkt het model de **voorspelde snelheid** met hoe je werkelijk hebt gesport. "
             " Wijkt jouw tempo significant af van de verwachting? Dan detecteert het dashboard "
             "automatisch de **muur** , het moment waarop het lichaam dus *nee* zegt."
         )
