@@ -781,7 +781,7 @@ with st.sidebar:
 
     drempel_pct = st.slider(
         "Muur-drempel (%)",
-        min_value=1, max_value=15, value=10, step=1,
+        min_value=1, max_value=30, value=10, step=1,
         help="Hoeveel procent de werkelijke snelheid onder de voorspelling moet zakken om als muur te tellen.",
     )
     rolling_window = st.slider(
@@ -790,7 +790,7 @@ with st.sidebar:
         help="Groter venster = soepelere features, iets minder precies.",
     )
 
-    st.markdown('<div class="speed-box-label">Snelheid Model</div>', unsafe_allow_html=True)
+    st.markdown('<div class="speed-box-label">Snelheid vs nauwkeurigheid</div>', unsafe_allow_html=True)
 
     max_activiteiten = st.slider(
         "Max. activiteiten (model)",
@@ -1082,6 +1082,64 @@ with tab_cv:
         'Beste':      'ja' if mnaam == beste_naam else '',
     } for mnaam, s in cv_scores.items()]
     st.dataframe(pd.DataFrame(cv_rows), use_container_width=True, hide_index=True)
+
+    st.markdown('<div class="section-label">Leave-one-out overzicht</div>', unsafe_allow_html=True)
+    st.caption(
+        "Per fold wordt één activiteit uitgelaten als testset. "
+        "Het model traint op alle overige activiteiten en voorspelt de uitgelaten activiteit. "
+        "Hieronder staan de eerste 10 folds."
+    )
+
+    fold_resultaten = results.get('fold_resultaten', {})
+    alle_run_ids    = sorted(fold_resultaten.keys())
+    toon_ids        = alle_run_ids[:10]
+    alle_namen_cv   = {rid: fold_resultaten[rid]['naam'] for rid in alle_run_ids}
+
+    for fold_nr, test_id in enumerate(toon_ids, start=1):
+        test_naam  = alle_namen_cv[test_id]
+        test_sport = sport_per_run.get(test_id, '')
+        sport_tag  = f"  ·  {test_sport.upper()}" if test_sport and test_sport != 'onbekend' else ''
+
+        train_namen = [
+            alle_namen_cv[rid] for rid in alle_run_ids if rid != test_id
+        ]
+
+        # Bouw HTML-tabel voor deze fold
+        train_rijen = "".join(
+            f'<tr><td style="padding:0.2rem 0.75rem;color:#6b7a99;font-size:0.78rem;">{n}</td></tr>'
+            for n in train_namen
+        )
+
+        st.markdown(f"""
+        <div style="
+            background:#10131c;
+            border:1px solid #1e2535;
+            border-left:3px solid #00c8ff;
+            border-radius:4px;
+            padding:0.75rem 1rem;
+            margin-bottom:0.6rem;
+        ">
+            <div style="display:flex;gap:1.5rem;align-items:flex-start;">
+                <div style="min-width:160px;">
+                    <div style="font-size:0.68rem;letter-spacing:0.1em;text-transform:uppercase;
+                                color:#6b7a99;margin-bottom:0.2rem;">Fold {fold_nr}</div>
+                    <div style="font-size:0.68rem;letter-spacing:0.1em;text-transform:uppercase;
+                                color:#00c8ff;margin-bottom:0.4rem;">Testset</div>
+                    <div style="font-size:0.82rem;color:#e8eaf0;word-break:break-all;">{test_naam}{sport_tag}</div>
+                </div>
+                <div style="flex:1;">
+                    <div style="font-size:0.68rem;letter-spacing:0.1em;text-transform:uppercase;
+                                color:#4a5568;margin-bottom:0.4rem;">Trainset ({len(train_namen)} activiteiten)</div>
+                    <table style="width:100%;border-collapse:collapse;">
+                        {train_rijen}
+                    </table>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    if len(alle_run_ids) > 10:
+        st.caption(f"+ {len(alle_run_ids) - 10} folds niet weergegeven")
 
 # ── Per activiteit: grafieken ──
 KLEUREN = ['#00c8ff', '#ff6b35', '#b084ff', '#2ecc71']
