@@ -878,14 +878,7 @@ with st.sidebar:
         uploaded_files = [
             RepoFile(f['path'])
             for f in repo_files
-            if (
-                f['athlete'] in gekozen_atleten
-                and (sportfilter is None or f.get('sport') == sportfilter)
-                and not (
-                    sportfilter == 'running'
-                    and f.get('name', '').lower() == 'schaatsen.fit'
-                )
-            )
+            if f['athlete'] in gekozen_atleten and (sportfilter is None or f.get('sport') == sportfilter)
         ]
 
         st.caption(f"{len(uploaded_files)} FIT-bestanden geselecteerd uit repo")
@@ -1302,32 +1295,31 @@ with tab_grafieken:
         with st.expander(f"{naam}{sport_tag}", expanded=True):
             # ── Badges ──────────────────────────────────────────────────
             badge_cols = st.columns(2)
-
-            def sec_to_min(sec):
-                return round(sec / 60)
-
-            muur_start = res.get('muur_start', res.get('muur_tijdstap'))
-            muur_eind  = res.get('muur_eind',  res.get('muur_tijdstap'))
-            flow_start = res.get('flow_start', res.get('flow_tijdstap'))
-            flow_eind  = res.get('flow_eind',  res.get('flow_tijdstap'))
-
             with badge_cols[0]:
-                if muur_start is not None:
+                if muur:
+                    muur_min = int(muur // 60)
                     st.markdown(
-                        f'<span class="muur-badge">🔴 Muur – minuut {sec_to_min(muur_start)} t/m {sec_to_min(muur_eind)}</span>',
+                        f'<span class="muur-badge">🔴 Muur – minuut {muur_min} ({int(muur)}s)</span>',
                         unsafe_allow_html=True,
                     )
                 else:
-                    st.markdown('<span class="geen-muur-badge">✓ Geen muur</span>', unsafe_allow_html=True)
-
-            with badge_cols[1]:
-                if flow_start is not None:
                     st.markdown(
-                        f'<span class="geen-muur-badge">🟢 Flow – minuut {sec_to_min(flow_start)} t/m {sec_to_min(flow_eind)}</span>',
+                        '<span class="geen-muur-badge">✓ Geen muur</span>',
                         unsafe_allow_html=True,
-                        )
+                    )
+            with badge_cols[1]:
+                flow = res['flow_tijdstap']
+                if flow:
+                    flow_min = int(flow // 60)
+                    st.markdown(
+                        f'<span class="geen-muur-badge">🟢 Flow – minuut {flow_min} ({int(flow)}s)</span>',
+                        unsafe_allow_html=True,
+                    )
                 else:
-                    st.markdown('<span class="muur-badge">✗ Geen flow</span>', unsafe_allow_html=True)
+                    st.markdown(
+                        '<span class="muur-badge">✗ Geen flow</span>',
+                        unsafe_allow_html=True,
+                    )
 
             fig = go.Figure()
             fig.add_trace(go.Scatter(
@@ -1350,19 +1342,17 @@ with tab_grafieken:
                 name='Werkelijk',
                 line=dict(color=kleur, width=2),
             ))
-            if muur_start is not None:
-                fig.add_vrect(
-                    x0=muur_start / 60, x1=muur_eind / 60,
-                    fillcolor='rgba(231,76,60,0.15)', line_width=0,
+            if muur:
+                fig.add_vline(
+                    x=muur / 60, line_color='#e74c3c', line_width=2,
                     annotation_text='Muur', annotation_font_color='#e74c3c',
-                    annotation_position='top left',
-                )
-            if flow_start is not None:
-                fig.add_vrect(
-                    x0=flow_start / 60, x1=flow_eind / 60,
-                    fillcolor='rgba(46,204,113,0.15)', line_width=0,
-                    annotation_text='Flow', annotation_font_color='#2ecc71',
                     annotation_position='top right',
+                )
+            if flow:
+                fig.add_vline(
+                    x=flow / 60, line_color='#2ecc71', line_width=2,
+                    annotation_text='Flow', annotation_font_color='#2ecc71',
+                    annotation_position='top left',
                 )
             fig.update_layout(
                 **_LAYOUT,
@@ -1412,12 +1402,10 @@ with tab_grafieken:
                     annotation_text=f'Drempel +{drempel_pct}%',
                     annotation_font_color='#2ecc71', annotation_position='top left',
                 )
-                if muur_start is not None:
-                    fig2.add_vrect(x0=muur_start / 60, x1=muur_eind / 60,
-                            fillcolor='rgba(231,76,60,0.10)', line_width=0)
-                if flow_start is not None:
-                    fig2.add_vrect(x0=flow_start / 60, x1=flow_eind / 60,
-                            fillcolor='rgba(46,204,113,0.10)', line_width=0)
+                if muur:
+                    fig2.add_vline(x=muur / 60, line_color='#e74c3c', line_width=1.5)
+                if flow:
+                    fig2.add_vline(x=flow / 60, line_color='#2ecc71', line_width=1.5)
                 fig2.update_layout(
                     **_LAYOUT,
                     title=dict(text='Afwijking (%)', font=dict(size=13, color='#c8d0e0')),
