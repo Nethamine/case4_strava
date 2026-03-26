@@ -1125,6 +1125,10 @@ if 'results' not in st.session_state:
 
 results    = st.session_state['results']
 act_res      = results['activiteit_resultaten']
+# Oude session state detecteren en wissen
+if act_res and 'muur_tijdstap' in next(iter(act_res.values())):
+    st.session_state.clear()
+    st.rerun()
 cv_scores    = results['cv_scores']
 beste_naam   = results['beste_naam']
 sport        = results['detected_sport']
