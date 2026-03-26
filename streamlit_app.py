@@ -1306,10 +1306,10 @@ with tab_grafieken:
             def sec_to_min(sec):
                 return round(sec / 60)
 
-            muur_start = res['muur_start']
-            muur_eind  = res['muur_eind']
-            flow_start = res['flow_start']
-            flow_eind  = res['flow_eind']
+            muur_start = res.get('muur_start', res.get('muur_tijdstap'))
+            muur_eind  = res.get('muur_eind',  res.get('muur_tijdstap'))
+            flow_start = res.get('flow_start', res.get('flow_tijdstap'))
+            flow_eind  = res.get('flow_eind',  res.get('flow_tijdstap'))
 
             with badge_cols[0]:
                 if muur_start is not None:
