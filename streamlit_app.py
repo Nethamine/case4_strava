@@ -294,6 +294,10 @@ def _clean_fit_data(df: pd.DataFrame) -> pd.DataFrame:
         df = df.dropna(subset=['timestamp'])
         df = df.set_index('timestamp').sort_index()
 
+    # Geen hartslag aanwezig = activiteit negeren
+    if 'heart_rate' not in df.columns or df['heart_rate'].isna().all():
+        return pd.DataFrame()
+
     # Verwijder rijen zonder kernvariabelen
     kernvars = [c for c in ['enhanced_speed', 'heart_rate', 'cadence'] if c in df.columns]
     if kernvars:
@@ -902,9 +906,13 @@ if run_btn:
 
     try:
         # ── Laag 1: parse per bestand ──────────────────
-        clean_dfs   = []
+        clean_dfs    = []
         sport_labels = []
+        atleet_labels = []
         cached_count = 0
+
+        # Bouw bestandsnaam -> atleet lookup vanuit repo_files
+        _naam_naar_atleet = {f['name']: f['athlete'] for f in repo_files}
 
         for i, (uf, fhash, fbytes) in enumerate(
                 zip(uploaded_files, file_hashes, file_bytes_list), start=1):
@@ -924,14 +932,16 @@ if run_btn:
             df_clean['sport'] = sport or 'onbekend'
             clean_dfs.append(df_clean)
             sport_labels.append(sport)
+            atleet_labels.append(_naam_naar_atleet.get(uf.name, ''))
             cached_count += int(was_cached)
 
             label = (f"Bestand {i}/{n_files}: {uf.name}"
                      + (" (cache)" if was_cached else " – parsen..."))
             tick(label)
 
-        detected_sport = sport_labels[0] if sport_labels else 'onbekend'
-        sport_per_run  = {i+1: s for i, s in enumerate(sport_labels)}
+        detected_sport  = sport_labels[0] if sport_labels else 'onbekend'
+        sport_per_run   = {i+1: s for i, s in enumerate(sport_labels)}
+        atleet_per_run  = {i+1: a for i, a in enumerate(atleet_labels)}
 
         # ── Laag 2: feature engineering ───────────────
         tick("Feature engineering…")
@@ -963,6 +973,7 @@ if run_btn:
             'activiteit_resultaten': act_res,
             'detected_sport':        detected_sport,
             'sport_per_run':         sport_per_run,
+            'atleet_per_run':        atleet_per_run,
             'drempel_pct':           drempel_pct,
             'cached_count':          cached_count,
             'n_files':               n_files,
@@ -997,7 +1008,8 @@ act_res      = results['activiteit_resultaten']
 cv_scores    = results['cv_scores']
 beste_naam   = results['beste_naam']
 sport        = results['detected_sport']
-sport_per_run = results.get('sport_per_run', {})
+sport_per_run  = results.get('sport_per_run', {})
+atleet_per_run = results.get('atleet_per_run', {})
 cached_cnt = results.get('cached_count', 0)
 n_files    = results.get('n_files', len(act_res))
 
@@ -1041,11 +1053,16 @@ _max_weer   = min(len(_alle_namen), 10)
 
 # Bouw leesbare labels: "bestandsnaam  ·  SPORT"
 def _activiteit_label(rid):
-    naam  = _alle_namen[rid]
-    sport = sport_per_run.get(rid, '')
+    naam   = _alle_namen[rid]
+    sport  = sport_per_run.get(rid, '')
+    atleet = atleet_per_run.get(rid, '')
+    delen  = []
+    if atleet:
+        delen.append(atleet)
     if sport and sport != 'onbekend':
-        return f"{naam}  ·  {sport.upper()}"
-    return naam
+        delen.append(sport.upper())
+    suffix = '  ·  ' + '  ·  '.join(delen) if delen else ''
+    return f"{naam}{suffix}"
 
 _label_naar_rid = {_activiteit_label(rid): rid for rid in _alle_namen}
 _standaard      = list(_label_naar_rid.keys())[:_max_weer]
