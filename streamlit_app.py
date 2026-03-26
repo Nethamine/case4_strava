@@ -1199,10 +1199,17 @@ with tab_cv:
         test_naam  = alle_namen_cv[test_id]
         test_sport = sport_per_run.get(test_id, '')
         sport_tag  = f"  ·  {test_sport.upper()}" if test_sport and test_sport != 'onbekend' else ''
-        train_namen = [alle_namen_cv[rid] for rid in alle_run_ids if rid != test_id]
+        train_ids = [rid for rid in alle_run_ids if rid != test_id]
+        # Show activity name plus sport for trainset entries (e.g. "file.fit.gz  ·  CYCLING")
         train_rijen = "".join(
-            f'<tr><td style="padding:0.2rem 0.75rem;color:#6b7a99;font-size:0.78rem;">{n}</td></tr>'
-            for n in train_namen
+            (
+                '<tr><td style="padding:0.2rem 0.75rem;color:#6b7a99;font-size:0.78rem;">'
+                + alle_namen_cv[rid]
+                + (f'  ·  {sport_per_run.get(rid, "").upper()}'
+                   if sport_per_run.get(rid) and sport_per_run.get(rid) != 'onbekend' else '')
+                + '</td></tr>'
+            )
+            for rid in train_ids
         )
         st.markdown(f"""
         <div style="background:#10131c;border:1px solid #1e2535;border-left:3px solid #00c8ff;
@@ -1403,45 +1410,17 @@ with tab_grafieken:
 with tab_importance:
     if results.get('importances') is not None:
         st.markdown('<div class="section-label">Feature importance</div>', unsafe_allow_html=True)
-
-        st.markdown("""
-        <div style="background:#10131c;border:1px solid #1e2535;border-left:3px solid #00c8ff;
-                    border-radius:4px;padding:0.75rem 1.2rem;margin-bottom:1.2rem;font-size:0.82rem;color:#8899aa;">
-            <strong style="color:#c8d8e8;">Wat zie je hier?</strong> Het model kent aan elke variabele een gewicht toe.
-            Hoe groter het percentage, hoe meer die variabele het voorspelde tempo bepaalt.
-            <strong style="color:#00c8ff;">hr_speed_ratio</strong> (verhouding hartslag/snelheid) is veruit de sterkste voorspeller.
-        </div>
-        """, unsafe_allow_html=True)
-
         imp = results['importances']
-        imp_pct = imp * 100  # ← omzetten naar percentages
-
         fig_imp = go.Figure(go.Bar(
-            x=imp_pct.values,
-            y=imp_pct.index,
-            orientation='h',
-            marker_color='#00c8ff',
-            marker=dict(
-                color='#00c8ff',
-                line=dict(color='rgba(0,200,255,0.3)', width=1),
-            ),
-            text=[f"{v:.1f}%" for v in imp_pct.values],  # ← labels op de bars
-            textposition='outside',
-            textfont=dict(color='#8899aa', size=11),
+            x=imp.values, y=imp.index, orientation='h', marker_color='#00c8ff',
         ))
         fig_imp.update_layout(
             title=dict(text=f'{beste_naam} – getraind op alle data',
                        font=dict(size=13, color='#c8d0e0')),
             plot_bgcolor='#10131c', paper_bgcolor='#10131c',
             font=dict(color='#8899aa'),
-            height=420,
-            margin=dict(l=160, r=80, t=50, b=40),  # r vergroot voor labels buiten bar
-            xaxis=dict(
-                gridcolor='#1e2535', linecolor='#1e2535',
-                title='Belang (%)',
-                tickformat='.0f',          # ← geen decimalen op as
-                ticksuffix='%',            # ← %-teken achter tick-waarden
-            ),
+            height=400, margin=dict(l=160, r=20, t=50, b=40),
+            xaxis=dict(gridcolor='#1e2535', linecolor='#1e2535', title='Belang'),
             yaxis=dict(gridcolor='#1e2535', linecolor='#1e2535'),
         )
         st.plotly_chart(fig_imp, use_container_width=True)
