@@ -1211,7 +1211,7 @@ with tab_cv:
         for naam, sport in train_namen
     )
     st.markdown(f"""
-        <div style="background:#10131c;border:1px solid #1e2535;border-left:3px solid #00c8ff;
+    <div style="background:#10131c;border:1px solid #1e2535;border-left:3px solid #00c8ff;
                     border-radius:4px;padding:0.75rem 1rem;margin-bottom:0.6rem;">
             <div style="display:flex;gap:1.5rem;align-items:flex-start;">
                 <div style="min-width:160px;">
