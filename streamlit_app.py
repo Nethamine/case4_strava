@@ -1199,18 +1199,12 @@ with tab_cv:
         test_naam  = alle_namen_cv[test_id]
         test_sport = sport_per_run.get(test_id, '')
         sport_tag  = f"  ·  {test_sport.upper()}" if test_sport and test_sport != 'onbekend' else ''
-    train_namen = [
-        (alle_namen_cv[rid], sport_per_run.get(rid, ''))
-        for rid in alle_run_ids if rid != test_id
-    ]
-    train_rijen = "".join(
-        f'<tr><td style="padding:0.2rem 0.75rem;color:#6b7a99;font-size:0.78rem;">'
-        f'{naam}'
-        f'{"  ·  <span style=\'color:#00c8ff;font-size:0.72rem;\'>" + sport.upper() + "</span>" if sport and sport != "onbekend" else ""}'
-        f'</td></tr>'
-        for naam, sport in train_namen
-    )
-    st.markdown(f"""
+        train_namen = [alle_namen_cv[rid] for rid in alle_run_ids if rid != test_id]
+        train_rijen = "".join(
+            f'<tr><td style="padding:0.2rem 0.75rem;color:#6b7a99;font-size:0.78rem;">{n}</td></tr>'
+            for n in train_namen
+        )
+        st.markdown(f"""
         <div style="background:#10131c;border:1px solid #1e2535;border-left:3px solid #00c8ff;
                     border-radius:4px;padding:0.75rem 1rem;margin-bottom:0.6rem;">
             <div style="display:flex;gap:1.5rem;align-items:flex-start;">
