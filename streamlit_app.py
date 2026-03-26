@@ -297,7 +297,12 @@ div[data-testid="stFileUploader"] {
     border-radius: 6px;
     padding: 0.5rem;
 }
-.stProgress > div > div { background-color: #00c8ff !important; }
+div[data-testid="stProgress"] div[role="progressbar"] {
+    background-color: #00c8ff !important;
+}
+div[data-testid="stProgressBar"] > div > div > div > div {
+    background-color: #00c8ff !important;
+}
 .stSelectbox > div > div { background-color: #161b27; border-color: #252d3d; }
 hr { border-color: #1e2535; }
 h1, h2, h3 { font-family: 'Barlow Condensed', sans-serif; }
