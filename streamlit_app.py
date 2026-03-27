@@ -1,6 +1,11 @@
 """
 Strava Pacing Model – Streamlit App
 Gebruik: streamlit run pacing_model_streamlit.py
+
+Target: heart_rate (voorspeld op basis van cadans, power, voortgang, etc.)
+Speed wordt NIET in het model gebruikt – alleen ter visualisatie.
+Muurdetectie: werkelijke HR structureel HOGER dan voorspeld → overbelasting.
+Flow-detectie: werkelijke HR structureel LAGER dan voorspeld → efficiënt bewegen.
 """
 
 import os
@@ -342,13 +347,12 @@ with st.expander("**Over dit dashboard**", expanded=True):
             " Het enige wat je hoeft te doen is je eigen FIT-bestanden uploaden en de rest wordt voor je gedaan!"
         )
 
-
     with col_stappen:
         for num, titel, tekst in [
             ("1", "Upload FIT-bestanden",          "Je kan je eigen .fit of .fit.gz bestanden van dezelfde sport uploaden via de zijbalk!"),
-            ("2", "Model traint automatisch",      "Het model ontdekt jouw sport-patroon op basis van hartslag, cadans en snelheid."),
-            ("3", "Voorspelling vs werkelijkheid", "De grafiek toont waar jouw tempo afweek van de verwachting."),
-            ("4", "Muurdetectie",                  "Zodra de afwijking de drempel overschrijdt, markeert het dashboard het exacte moment."),
+            ("2", "Model traint automatisch",      "Het model voorspelt je verwachte hartslag op basis van cadans, power en voortgang."),
+            ("3", "Voorspelling vs werkelijkheid", "De grafiek toont waar jouw hartslag afweek van de verwachting."),
+            ("4", "Muurdetectie",                  "Zodra je HR structureel hoger is dan verwacht, markeert het dashboard het exacte moment."),
         ]:
             st.markdown(f"**{num} · {titel}**")
             st.caption(tekst)
@@ -439,18 +443,19 @@ def _clean_fit_data(df: pd.DataFrame) -> pd.DataFrame:
         df = df.dropna(subset=['timestamp'])
         df = df.set_index('timestamp').sort_index()
 
+    # heart_rate is verplicht (= target)
     if 'heart_rate' not in df.columns or df['heart_rate'].isna().all():
         return pd.DataFrame()
 
-    kernvars = [c for c in ['enhanced_speed', 'heart_rate', 'cadence'] if c in df.columns]
+    # Cadans is de minimale feature die we nodig hebben
+    kernvars = [c for c in ['heart_rate', 'cadence'] if c in df.columns]
     if kernvars:
         df = df.dropna(subset=kernvars)
 
     if df.empty:
         return df
 
-    if 'enhanced_speed' in df.columns:
-        df = df[df['enhanced_speed'] > 0.5]
+    # HR-filter
     if 'heart_rate' in df.columns:
         df = df[(df['heart_rate'] > 40) & (df['heart_rate'] < 220)]
 
@@ -487,23 +492,24 @@ def build_feature_matrix(
 
 def _engineer_features(df: pd.DataFrame, window: int = 60) -> pd.DataFrame:
     df = df.copy()
+
     if 'distance' in df.columns:
         df['cumulative_distance'] = df['distance']
-    elif 'enhanced_speed' in df.columns:
-        df['cumulative_distance'] = df['enhanced_speed'].cumsum()
+
     if 'power' in df.columns:
         df['cumulative_power'] = df['power'].cumsum()
 
-    for col in ['enhanced_speed', 'heart_rate', 'cadence', 'power']:
+    # Rolling features – GEEN speed-features
+    for col in ['heart_rate', 'cadence', 'power']:
         if col in df.columns:
             df[f'{col}_rolling'] = df[col].rolling(window=window, min_periods=1).mean()
 
-    if 'heart_rate' in df.columns and 'enhanced_speed' in df.columns:
-        df['hr_speed_ratio'] = df['heart_rate'] / (df['enhanced_speed'] + 1e-5)
-        df['hr_drift'] = df['hr_speed_ratio'].rolling(window=window, min_periods=1).mean()
-
     if 'cadence' in df.columns:
         df['cadence_trend'] = df['cadence'].rolling(window=window, min_periods=1).mean()
+
+    # HR-drift op basis van alleen HR over tijd (stijging = vermoeidheid)
+    if 'heart_rate' in df.columns:
+        df['hr_drift'] = df['heart_rate'].rolling(window=window, min_periods=1).mean()
 
     df['progress'] = df['elapsed_seconds'] / df['elapsed_seconds'].max()
     return df
@@ -539,24 +545,27 @@ def run_cv(
                 n_estimators=50, random_state=42),
         }
 
-    target_col = 'enhanced_speed'
+    # ── TARGET = heart_rate ──
+    target_col = 'heart_rate'
 
+    # ── FEATURES – geen speed, geen hr_speed_ratio ──
     feature_cols = [c for c in [
-        'heart_rate', 'cadence', 'heart_rate_rolling', 'cadence_rolling',
-        'hr_drift', 'cadence_trend', 'hr_speed_ratio',
+        'cadence', 'cadence_rolling', 'cadence_trend',
+        'power', 'power_rolling',
         'cumulative_distance', 'cumulative_power',
+        'hr_drift',
         'elapsed_seconds', 'progress',
     ] if c in _df_features.columns]
 
     if target_col not in _df_features.columns:
         raise RuntimeError(
             f"Kolom '{target_col}' niet gevonden in de data. "
-            "Controleer of de FIT-bestanden snelheidsdata bevatten."
+            "Controleer of de FIT-bestanden hartslagdata bevatten."
         )
     if not feature_cols:
         raise RuntimeError(
             "Geen bruikbare feature-kolommen gevonden. "
-            "Controleer of de FIT-bestanden hart- of cadansdata bevatten."
+            "Controleer of de FIT-bestanden cadans- of powerdata bevatten."
         )
 
     alle_run_ids = sorted(_df_features['run_id'].unique())
@@ -660,8 +669,8 @@ def detect_pacing_events(
 ) -> dict:
     """
     Detecteert twee events per activiteit:
-      - muur : werkelijkheid blijft aanhoudend ONDER de voorspelling
-      - flow : werkelijkheid blijft aanhoudend BOVEN de voorspelling
+      - muur : werkelijke HR blijft aanhoudend BOVEN de voorspelling (overbelasting)
+      - flow : werkelijke HR blijft aanhoudend ONDER de voorspelling (efficiënt)
 
     Parameters:
         drempel_pct    - minimale afwijking in % om te tellen
@@ -674,15 +683,16 @@ def detect_pacing_events(
         df_tst = fold['df_test']
         y_pred = np.array(fold['y_pred'])
 
-        cols = ['elapsed_seconds', 'enhanced_speed']
-        for opt in ['heart_rate', 'cadence', 'source_file']:
+        cols = ['elapsed_seconds', 'heart_rate']
+        for opt in ['enhanced_speed', 'cadence', 'source_file']:
             if opt in df_tst.columns:
                 cols.append(opt)
         df_res = df_tst[cols].copy().reset_index(drop=True)
 
-        df_res['speed_predicted'] = y_pred
-        df_res['afwijking']       = df_res['enhanced_speed'] - df_res['speed_predicted']
-        df_res['afwijking_pct']   = (df_res['afwijking'] / df_res['speed_predicted']) * 100
+        df_res['hr_predicted'] = y_pred
+        # Afwijking: positief = HR hoger dan verwacht (overbelasting / muur)
+        df_res['afwijking']       = df_res['heart_rate'] - df_res['hr_predicted']
+        df_res['afwijking_pct']   = (df_res['afwijking'] / df_res['hr_predicted']) * 100
 
         # Smooth de afwijking om ruis te dempen
         afw_smooth = df_res['afwijking_pct'].rolling(window=10, min_periods=1, center=True).mean()
@@ -693,10 +703,12 @@ def detect_pacing_events(
         geldig    = df_res['elapsed_seconds'] >= start_sec
 
         def _eerste_aanhoudende(richting: str):
-            if richting == 'onder':
-                vlag = (afw_smooth < -drempel_pct).astype(int)
-            else:
+            if richting == 'boven':
+                # HR BOVEN verwachting = muur (overbelasting)
                 vlag = (afw_smooth > drempel_pct).astype(int)
+            else:
+                # HR ONDER verwachting = flow (efficiënt)
+                vlag = (afw_smooth < -drempel_pct).astype(int)
 
             aanhoudend = vlag.rolling(
                 window=aanhoudend_sec, min_periods=aanhoudend_sec
@@ -709,8 +721,10 @@ def detect_pacing_events(
             eerste_idx = max(kandidaten.index[0] - aanhoudend_sec + 1, 0)
             return float(df_res.loc[eerste_idx, 'elapsed_seconds'])
 
-        muur_tijdstap = _eerste_aanhoudende('onder')
-        flow_tijdstap = _eerste_aanhoudende('boven')
+        # Muur = HR structureel HOGER dan voorspeld
+        muur_tijdstap = _eerste_aanhoudende('boven')
+        # Flow = HR structureel LAGER dan voorspeld
+        flow_tijdstap = _eerste_aanhoudende('onder')
 
         resultaten[run_id] = {
             'naam':          fold['naam'],
@@ -755,7 +769,6 @@ def scan_repo_files() -> list[dict]:
                 full = os.path.join(d, fname)
                 if full not in seen and os.path.isfile(full):
                     seen.add(full)
-                    # detect sport once here (include mtime so cache is invalidated if file changes)
                     try:
                         sport = _detect_sport_from_path(full, os.path.getmtime(full))
                     except Exception:
@@ -844,8 +857,6 @@ with st.sidebar:
             default=atleten,
         )
 
-        # Use the precomputed `sport` field from `repo_files` (fast)
-        # Build counts and filter out numeric-only codes and rare sports
         sport_counts: dict[str, int] = {}
         for f in repo_files:
             s = f.get('sport')
@@ -856,7 +867,6 @@ with st.sidebar:
                 continue
             sport_counts[s_str] = sport_counts.get(s_str, 0) + 1
 
-        # Filter: skip numeric-only sport values (enum codes)
         MIN_COUNT = 2
         beschikbare_sporten = sorted([
             s for s, cnt in sport_counts.items()
@@ -924,7 +934,7 @@ with st.sidebar:
     drempel_pct = st.slider(
         "Muur-drempel (%)",
         min_value=1, max_value=30, value=10, step=1,
-        help="Hoeveel procent de werkelijke snelheid onder de voorspelling moet zakken om als muur te tellen.",
+        help="Hoeveel procent de werkelijke HR boven de voorspelling moet liggen om als muur te tellen.",
     )
     rolling_window = st.slider(
         "Rolling window (sec)",
@@ -1099,7 +1109,6 @@ if run_btn:
             'atleet_per_run':        atleet_per_run,
             'drempel_pct':           drempel_pct,
             'cached_count':          cached_count,
-            # Preserve which sport was chosen in the sidebar (may be "Alle sporten")
             'gekozen_sport':         locals().get('gekozen_sport', None),
             'n_files':               n_files,
         }
@@ -1136,7 +1145,6 @@ atleet_per_run = results.get('atleet_per_run', {})
 cached_cnt = results.get('cached_count', 0)
 n_files    = results.get('n_files', len(act_res))
 
-# If the sidebar selection was "Alle sporten", show "mixed" in the summary
 _gekozen_sport = results.get('gekozen_sport', None)
 if _gekozen_sport is None or _gekozen_sport == "Alle sporten":
     display_sport = "Mixed"
@@ -1160,7 +1168,7 @@ kpi_data = [
     ("Sport",        display_sport, ""),
     ("Activiteiten", str(n_files),       ""),
     ("Beste model",  beste_naam.replace(" ", "\u00a0"), ""),
-    ("Gem. MAE",     f"{avg_mae:.3f}",   "m/s"),
+    ("Gem. MAE",     f"{avg_mae:.2f}",   "bpm"),
     ("Gem. R²",      f"{avg_r2:.3f}",    ""),
 ]
 for col, (label, val, unit) in zip(kpi_cols, kpi_data):
@@ -1216,8 +1224,8 @@ with tab_cv:
     st.markdown('<div class="section-label">Cross-validatie scores</div>', unsafe_allow_html=True)
     cv_rows = [{
         'Model':      mnaam,
-        'MAE (m/s)':  f"{np.mean(s['MAE']):.4f}",
-        'RMSE (m/s)': f"{np.mean(s['RMSE']):.4f}",
+        'MAE (bpm)':  f"{np.mean(s['MAE']):.2f}",
+        'RMSE (bpm)': f"{np.mean(s['RMSE']):.2f}",
         'R²':         f"{np.mean(s['R2']):.4f}",
         'Beste':      'ja' if mnaam == beste_naam else '',
     } for mnaam, s in cv_scores.items()]
@@ -1242,9 +1250,9 @@ with tab_cv:
         for rid in alle_run_ids:
             if rid != test_id:
                 naam = alle_namen_cv[rid]
-                sport = sport_per_run.get(rid, '')
-                sport_tag = f"  ·  {sport.upper()}" if sport and sport != 'onbekend' else ''
-                train_namen.append(f"{naam}{sport_tag}")
+                sport_r = sport_per_run.get(rid, '')
+                sport_tag_r = f"  ·  {sport_r.upper()}" if sport_r and sport_r != 'onbekend' else ''
+                train_namen.append(f"{naam}{sport_tag_r}")
         train_rijen = "".join(
             f'<tr><td style="padding:0.2rem 0.75rem;color:#6b7a99;font-size:0.78rem;">{n}</td></tr>'
             for n in train_namen
@@ -1331,26 +1339,27 @@ with tab_grafieken:
                         unsafe_allow_html=True,
                     )
 
+            # ── Hoofdgrafiek: Voorspelde vs Werkelijke Hartslag ──
             fig = go.Figure()
             fig.add_trace(go.Scatter(
                 x=pd.concat([t_min, t_min[::-1]]),
                 y=pd.concat([
-                    _smooth(df_res['speed_predicted']),
-                    _smooth(df_res['enhanced_speed'])[::-1]
+                    _smooth(df_res['hr_predicted']),
+                    _smooth(df_res['heart_rate'])[::-1]
                 ]),
                 fill='toself', fillcolor='rgba(0,200,255,0.07)',
                 line=dict(width=0), hoverinfo='skip',
                 showlegend=False, name='verschil',
             ))
             fig.add_trace(go.Scatter(
-                x=t_min, y=_smooth(df_res['speed_predicted']),
+                x=t_min, y=_smooth(df_res['hr_predicted']),
                 name='Voorspeld',
                 line=dict(color='#ffffff', width=2.5, dash='dot'),
             ))
             fig.add_trace(go.Scatter(
-                x=t_min, y=_smooth(df_res['enhanced_speed']),
+                x=t_min, y=_smooth(df_res['heart_rate']),
                 name='Werkelijk',
-                line=dict(color=kleur, width=2),
+                line=dict(color='#e74c3c', width=2),
             ))
             if muur:
                 fig.add_vline(
@@ -1366,20 +1375,22 @@ with tab_grafieken:
                 )
             fig.update_layout(
                 **_LAYOUT,
-                title=dict(text='Snelheid (m/s)', font=dict(size=13, color='#c8d0e0')),
-                xaxis_title='Tijd (min)', yaxis_title='m/s',
+                title=dict(text='Hartslag – Voorspeld vs Werkelijk (bpm)', font=dict(size=13, color='#c8d0e0')),
+                xaxis_title='Tijd (min)', yaxis_title='bpm',
                 legend=dict(orientation='h', y=1.12, font=dict(size=11),
                             bgcolor='rgba(0,0,0,0)'),
                 height=320,
             )
-            st.plotly_chart(fig, use_container_width=True, key=f"speed_{run_id}")
+            st.plotly_chart(fig, use_container_width=True, key=f"hr_main_{run_id}")
 
             c1, c2 = st.columns(2)
             with c1:
+                # ── Afwijking HR (%) ──
                 afw = _smooth(df_res['afwijking_pct'], w=30)
                 fig2 = go.Figure()
+                # Positief = HR hoger dan verwacht = slecht (rood boven nul)
                 fig2.add_trace(go.Scatter(
-                    x=t_min, y=afw.clip(upper=0),
+                    x=t_min, y=afw.clip(lower=0),
                     fill='tozeroy', fillcolor='rgba(231,76,60,0.15)',
                     line=dict(width=0), showlegend=False, hoverinfo='skip',
                 ))
@@ -1393,24 +1404,24 @@ with tab_grafieken:
                 afw_min = float(afw.min())
                 fig2.add_hline(y=0, line_color='#4a5568', line_width=1)
                 fig2.add_hline(
-                    y=afw_max, line_dash='dash', line_color='#2ecc71', line_width=1.5,
+                    y=afw_max, line_dash='dash', line_color='#e74c3c', line_width=1.5,
                     annotation_text=f'Max +{afw_max:.1f}%',
-                    annotation_font_color='#2ecc71', annotation_position='top right',
+                    annotation_font_color='#e74c3c', annotation_position='top right',
                 )
                 fig2.add_hline(
-                    y=afw_min, line_dash='dash', line_color='#e74c3c', line_width=1.5,
+                    y=afw_min, line_dash='dash', line_color='#2ecc71', line_width=1.5,
                     annotation_text=f'Min {afw_min:.1f}%',
-                    annotation_font_color='#e74c3c', annotation_position='bottom right',
+                    annotation_font_color='#2ecc71', annotation_position='bottom right',
                 )
                 fig2.add_hline(
-                    y=-drempel_pct, line_dash='dot', line_color='#e74c3c', line_width=1,
-                    annotation_text=f'Drempel -{drempel_pct}%',
-                    annotation_font_color='#e74c3c', annotation_position='bottom left',
-                )
-                fig2.add_hline(
-                    y=drempel_pct, line_dash='dot', line_color='#2ecc71', line_width=1,
+                    y=drempel_pct, line_dash='dot', line_color='#e74c3c', line_width=1,
                     annotation_text=f'Drempel +{drempel_pct}%',
-                    annotation_font_color='#2ecc71', annotation_position='top left',
+                    annotation_font_color='#e74c3c', annotation_position='top left',
+                )
+                fig2.add_hline(
+                    y=-drempel_pct, line_dash='dot', line_color='#2ecc71', line_width=1,
+                    annotation_text=f'Drempel -{drempel_pct}%',
+                    annotation_font_color='#2ecc71', annotation_position='bottom left',
                 )
                 if muur:
                     fig2.add_vline(x=muur / 60, line_color='#e74c3c', line_width=1.5)
@@ -1418,19 +1429,20 @@ with tab_grafieken:
                     fig2.add_vline(x=flow / 60, line_color='#2ecc71', line_width=1.5)
                 fig2.update_layout(
                     **_LAYOUT,
-                    title=dict(text='Afwijking (%)', font=dict(size=13, color='#c8d0e0')),
+                    title=dict(text='HR Afwijking (%)', font=dict(size=13, color='#c8d0e0')),
                     xaxis_title='Tijd (min)', yaxis_title='%',
                     height=260,
                 )
                 st.plotly_chart(fig2, use_container_width=True, key=f"afw_{run_id}")
 
             with c2:
-                if 'heart_rate' in df_res.columns:
+                # ── Snelheid ter referentie (alleen visualisatie, NIET in model) ──
+                if 'enhanced_speed' in df_res.columns:
                     fig3 = go.Figure()
                     fig3.add_trace(go.Scatter(
-                        x=t_min, y=_smooth(df_res['heart_rate'], w=15),
-                        line=dict(color='#e74c3c', width=1.8),
-                        fill='tozeroy', fillcolor='rgba(231,76,60,0.06)',
+                        x=t_min, y=_smooth(df_res['enhanced_speed'], w=15),
+                        line=dict(color=kleur, width=1.8),
+                        fill='tozeroy', fillcolor='rgba(0,200,255,0.06)',
                         showlegend=False,
                     ))
                     if muur:
@@ -1439,11 +1451,30 @@ with tab_grafieken:
                         fig3.add_vline(x=flow / 60, line_color='#2ecc71', line_width=1.5)
                     fig3.update_layout(
                         **_LAYOUT,
-                        title=dict(text='Hartslag (bpm)', font=dict(size=13, color='#c8d0e0')),
-                        xaxis_title='Tijd (min)', yaxis_title='bpm',
+                        title=dict(text='Snelheid (m/s) – ter referentie', font=dict(size=13, color='#c8d0e0')),
+                        xaxis_title='Tijd (min)', yaxis_title='m/s',
                         height=260,
                     )
-                    st.plotly_chart(fig3, use_container_width=True, key=f"hr_{run_id}")
+                    st.plotly_chart(fig3, use_container_width=True, key=f"speed_ref_{run_id}")
+                elif 'cadence' in df_res.columns:
+                    fig3 = go.Figure()
+                    fig3.add_trace(go.Scatter(
+                        x=t_min, y=_smooth(df_res['cadence'], w=15),
+                        line=dict(color='#f39c12', width=1.8),
+                        fill='tozeroy', fillcolor='rgba(243,156,18,0.06)',
+                        showlegend=False,
+                    ))
+                    if muur:
+                        fig3.add_vline(x=muur / 60, line_color='#e74c3c', line_width=1.5)
+                    if flow:
+                        fig3.add_vline(x=flow / 60, line_color='#2ecc71', line_width=1.5)
+                    fig3.update_layout(
+                        **_LAYOUT,
+                        title=dict(text='Cadans (rpm)', font=dict(size=13, color='#c8d0e0')),
+                        xaxis_title='Tijd (min)', yaxis_title='rpm',
+                        height=260,
+                    )
+                    st.plotly_chart(fig3, use_container_width=True, key=f"cadence_{run_id}")
 
 with tab_importance:
     if results.get('importances') is not None:
@@ -1452,14 +1483,15 @@ with tab_importance:
         st.markdown("""
         <div style="background:#10131c;border:1px solid #1e2535;border-left:3px solid #00c8ff;
                     border-radius:4px;padding:0.75rem 1.2rem;margin-bottom:1.2rem;font-size:0.82rem;color:#8899aa;">
-            <strong style="color:#c8d8e8;">Wat zie je hier?</strong> Het model kent aan elke variabele een gewicht toe.
-            Hoe groter het percentage, hoe meer die variabele het voorspelde tempo bepaalt.
-            <strong style="color:#00c8ff;">hr_speed_ratio</strong> (verhouding hartslag/snelheid) is veruit de sterkste voorspeller.
+            <strong style="color:#c8d8e8;">Wat zie je hier?</strong> Het model voorspelt de verwachte hartslag
+            op basis van cadans, power, voortgang en verstreken tijd.
+            Hoe groter het percentage, hoe meer die variabele de voorspelde hartslag bepaalt.
+            <strong style="color:#00c8ff;">Snelheid wordt niet als feature gebruikt.</strong>
         </div>
         """, unsafe_allow_html=True)
 
         imp = results['importances']
-        imp_pct = imp * 100  # ← omzetten naar percentages
+        imp_pct = imp * 100
 
         fig_imp = go.Figure(go.Bar(
             x=imp_pct.values,
@@ -1470,7 +1502,7 @@ with tab_importance:
                 color='#00c8ff',
                 line=dict(color='rgba(0,200,255,0.3)', width=1),
             ),
-            text=[f"{v:.1f}%" for v in imp_pct.values],  # ← labels op de bars
+            text=[f"{v:.1f}%" for v in imp_pct.values],
             textposition='outside',
             textfont=dict(color='#8899aa', size=11),
         ))
@@ -1480,12 +1512,12 @@ with tab_importance:
             plot_bgcolor='#10131c', paper_bgcolor='#10131c',
             font=dict(color='#8899aa'),
             height=420,
-            margin=dict(l=160, r=80, t=50, b=40),  # r vergroot voor labels buiten bar
+            margin=dict(l=160, r=80, t=50, b=40),
             xaxis=dict(
                 gridcolor='#1e2535', linecolor='#1e2535',
                 title='Belang (%)',
-                tickformat='.0f',          # ← geen decimalen op as
-                ticksuffix='%',            # ← %-teken achter tick-waarden
+                tickformat='.0f',
+                ticksuffix='%',
             ),
             yaxis=dict(gridcolor='#1e2535', linecolor='#1e2535'),
         )
@@ -1496,7 +1528,7 @@ with tab_importance:
 st.markdown("---")
 st.markdown(
     '<p style="text-align:center;color:#2a3248;font-size:0.75rem;letter-spacing:0.08em;">'
-    'STRAVA PACING MODEL &nbsp;·&nbsp; LEAVE-ONE-OUT CV &nbsp;·&nbsp; MUUR-DETECTIE'
+    'STRAVA PACING MODEL &nbsp;·&nbsp; LEAVE-ONE-OUT CV &nbsp;·&nbsp; HR-PREDICTIE &nbsp;·&nbsp; MUUR-DETECTIE'
     '</p>',
     unsafe_allow_html=True,
 )
